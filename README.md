@@ -1,1 +1,2 @@
-# Mini-Project-Driver_Drowsiness_System
+# Mini-Project-A Smart System for Household Carbon Accountability and 
+Sustainability
