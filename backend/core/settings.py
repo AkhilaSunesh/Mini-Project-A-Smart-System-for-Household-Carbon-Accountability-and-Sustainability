@@ -38,12 +38,16 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    # local apps
+    # Third-party
+    'rest_framework',
+
+    # Local apps
     'users',
-    'receipts',
-    'reports',
     'leaderboard',
     'marketplace',
+    'reports',
+    'core',
+
 ]
 
 MIDDLEWARE = [
@@ -81,10 +85,15 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'carbon_accountability',   
+        'USER': 'postgres',                
+        'PASSWORD': 'root',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }
+
 
 
 # Password validation
@@ -122,3 +131,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
+# Media files (User uploaded files like proof images)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
