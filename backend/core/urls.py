@@ -21,6 +21,8 @@ urlpatterns = [
 
     # App routes
     path('api/users/', include('users.urls')),
+    path('api/leaderboard/', include('leaderboard.urls')),
+    path('api/marketplace/', include('marketplace.urls')),
 
     # JWT Authentication routes
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),

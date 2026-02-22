@@ -1,3 +1,5 @@
 from django.contrib import admin
+from .models import RewardProject, Purchase
 
-# Register your models here.
+admin.site.register(RewardProject)
+admin.site.register(Purchase)
