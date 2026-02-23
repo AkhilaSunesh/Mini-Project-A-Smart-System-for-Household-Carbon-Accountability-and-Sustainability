@@ -7,6 +7,15 @@ export default defineConfig(({ command }) => {
   const config = {
     plugins: [react(), tailwindcss()],
     base: '/',
+    server: {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8000',
+          changeOrigin: true,
+          secure: false,
+        },
+      },
+    },
   }
 
   if (command !== 'serve') {

@@ -87,3 +87,22 @@ class PurchaseProjectView(APIView):
             "price_per_credit": project.price_per_credit,
             "total_price": total_price
         }, status=status.HTTP_200_OK)
+
+
+# 🔹 User Purchase History
+class UserPurchaseHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        purchases = Purchase.objects.filter(user=request.user).order_by('-created_at')
+        data = []
+        for p in purchases:
+            data.append({
+                "id": p.id,
+                "organization_name": p.project.organization_name,
+                "credits_bought": p.credits_bought,
+                "total_price": p.total_price,
+                "price_per_credit": p.project.price_per_credit,
+                "created_at": p.created_at.isoformat(),
+            })
+        return Response(data)
