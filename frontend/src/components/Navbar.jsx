@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Leaf, Menu, X, User } from 'lucide-react';
+import { Leaf, Menu, X, User, LayoutDashboard } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 const scrollTo = (id) => {
@@ -11,6 +11,9 @@ const Navbar = () => {
     const [isScrolled, setIsScrolled] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const location = useLocation();
+
+    const isLoggedIn = !!localStorage.getItem('access_token');
+    const username = localStorage.getItem('username');
 
     useEffect(() => {
         const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -25,14 +28,13 @@ const Navbar = () => {
     const navLinks = [
         { name: 'Home', scrollId: null, path: '/' },
         { name: 'About', scrollId: 'about' },
-        { name: 'Products', scrollId: 'products' },
         { name: 'Impact', scrollId: 'impact' },
         { name: 'Contact', scrollId: 'contact' },
     ];
 
     const handleNavClick = (link) => {
         setIsMobileMenuOpen(false);
-        if (link.path) return; // React Router Link handles it
+        if (link.path) return;
         if (link.scrollId) scrollTo(link.scrollId);
     };
 
@@ -68,20 +70,38 @@ const Navbar = () => {
 
                 {/* Desktop CTA */}
                 <div className="hidden md:flex items-center gap-4">
-                    <Link to="/login" className="flex items-center gap-2 text-primary-900 hover:text-primary-600 font-bold px-4 py-2 rounded-full hover:bg-primary-50 transition-all">
-                        <User className="w-5 h-5" />
-                        Login
-                    </Link>
-                    <Link to="/login" className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-semibold transition-all shadow-lg shadow-primary-200">
-                        Get Started
-                    </Link>
+                    {isLoggedIn ? (
+                        <>
+                            <span className="text-sm text-primary-700 font-medium">Hi, {username}!</span>
+                            <Link to="/dashboard" className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-semibold transition-all shadow-lg shadow-primary-200 flex items-center gap-2">
+                                <LayoutDashboard className="w-4 h-4" />
+                                Dashboard
+                            </Link>
+                        </>
+                    ) : (
+                        <>
+                            <Link to="/login" className="flex items-center gap-2 text-primary-900 hover:text-primary-600 font-bold px-4 py-2 rounded-full hover:bg-primary-50 transition-all">
+                                <User className="w-5 h-5" />
+                                Login
+                            </Link>
+                            <Link to="/login" className="bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-full font-semibold transition-all shadow-lg shadow-primary-200">
+                                Get Started
+                            </Link>
+                        </>
+                    )}
                 </div>
 
                 {/* Mobile Toggle */}
                 <div className="md:hidden flex items-center gap-4">
-                    <Link to="/login" className="text-primary-900 p-2">
-                        <User className="w-5 h-5" />
-                    </Link>
+                    {isLoggedIn ? (
+                        <Link to="/dashboard" className="text-primary-900 p-2">
+                            <LayoutDashboard className="w-5 h-5" />
+                        </Link>
+                    ) : (
+                        <Link to="/login" className="text-primary-900 p-2">
+                            <User className="w-5 h-5" />
+                        </Link>
+                    )}
                     <button className="text-primary-900 p-2" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
                         {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
                     </button>
@@ -107,12 +127,20 @@ const Navbar = () => {
                         )
                     )}
                     <div className="mt-4 flex flex-col gap-4">
-                        <Link to="/login" className="w-full text-center py-4 border border-gray-200 rounded-xl font-bold text-primary-900 hover:bg-gray-50">
-                            Log In
-                        </Link>
-                        <Link to="/dashboard" className="w-full text-center py-4 bg-primary-600 text-white rounded-xl font-bold shadow-lg shadow-primary-200">
-                            Go to Dashboard
-                        </Link>
+                        {isLoggedIn ? (
+                            <Link to="/dashboard" className="w-full text-center py-4 bg-primary-600 text-white rounded-xl font-bold shadow-lg shadow-primary-200">
+                                Go to Dashboard
+                            </Link>
+                        ) : (
+                            <>
+                                <Link to="/login" className="w-full text-center py-4 border border-gray-200 rounded-xl font-bold text-primary-900 hover:bg-gray-50">
+                                    Log In
+                                </Link>
+                                <Link to="/login" className="w-full text-center py-4 bg-primary-600 text-white rounded-xl font-bold shadow-lg shadow-primary-200">
+                                    Get Started
+                                </Link>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

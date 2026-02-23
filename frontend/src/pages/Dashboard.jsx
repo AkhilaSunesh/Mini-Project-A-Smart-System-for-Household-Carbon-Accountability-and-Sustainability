@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     LayoutDashboard,
     ShoppingBag,
@@ -24,14 +24,16 @@ import {
     BarChart2,
     Globe,
     ArrowUpRight,
-    ArrowDownRight,
     Package,
     Check,
     Clock,
     Star,
     MessageSquare,
+    Upload,
+    FileText,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { getProfile, getLeaderboard, getMarketplaceProjects, purchaseCredits, getPurchaseHistory, getMySubmissions, submitEcoAction, getCarbonHistory, submitCarbonReport } from '../api';
 
 /* ─── Tiny reusable bar chart (CSS + SVG, no library needed) ─── */
 const WeeklyBarChart = ({ data, label, color }) => {
@@ -112,65 +114,325 @@ const Dashboard = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('Overview');
 
-    const handleLogout = () => navigate('/');
+    // Real data state
+    const [profile, setProfile] = useState(null);
+    const [leaderboard, setLeaderboard] = useState([]);
+    const [marketplace, setMarketplace] = useState([]);
+    const [submissions, setSubmissions] = useState([]);
+    const [carbonHistory, setCarbonHistory] = useState([]);
+    const [purchaseHistory, setPurchaseHistory] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    // Submit eco-action form state
+    const [submitForm, setSubmitForm] = useState({ title: '', category: 'Transport', description: '' });
+    const [submitFile, setSubmitFile] = useState(null);
+    const [submitLoading, setSubmitLoading] = useState(false);
+    const [submitMessage, setSubmitMessage] = useState('');
+
+    // Carbon Report Form State
+    const [carbonForm, setCarbonForm] = useState({
+        transport_distance: 0,
+        transport_vehicle_type: 'car_petrol_small',
+        electricity_units: 0,
+        lpg_used: 0,
+        water_used: 0,
+        water_source: 'municipal',
+        waste_weight: 0,
+        waste_type_method: 'organic_landfill'
+    });
+    const [carbonLoading, setCarbonLoading] = useState(false);
+    const [carbonMessage, setCarbonMessage] = useState('');
+
+    // Purchase state
+    const [purchaseLoading, setPurchaseLoading] = useState(null);
+    const [purchaseMessage, setPurchaseMessage] = useState('');
+    const [buyQty, setBuyQty] = useState({});
+
+    // --- AQI state (lifted to Dashboard level for hooks stability) ---
+    const [aqi, setAqi] = useState(null);
+    const [aqiLoading, setAqiLoading] = useState(true);
+
+    // --- Checklist state (persisted in localStorage) ---
+    const CHECKLIST_KEY = 'eco_checklist';
+    const defaultChecklist = [
+        { id: 1, text: 'Meat Free Monday', done: false },
+        { id: 2, text: 'Unplug Standby Devices', done: false },
+        { id: 3, text: 'Take Public Transport', done: false },
+        { id: 4, text: 'Use Reusable Bag', done: false },
+        { id: 5, text: 'Reduce Shower Time', done: false },
+    ];
+    const loadChecklist = () => {
+        try {
+            const saved = localStorage.getItem(CHECKLIST_KEY);
+            return saved ? JSON.parse(saved) : defaultChecklist;
+        } catch { return defaultChecklist; }
+    };
+    const [checklist, setChecklist] = useState(loadChecklist);
+    const toggleCheck = (id) => {
+        const updated = checklist.map(item => item.id === id ? { ...item, done: !item.done } : item);
+        setChecklist(updated);
+        localStorage.setItem(CHECKLIST_KEY, JSON.stringify(updated));
+    };
+
+    const username = localStorage.getItem('username') || 'User';
+
+    useEffect(() => {
+        // Auth guard
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+            navigate('/login');
+            return;
+        }
+        fetchAllData();
+    }, []);
+
+    // --- Fetch AQI for Kottayam (always called, not conditional) ---
+    useEffect(() => {
+        const fetchAqi = async () => {
+            setAqiLoading(true);
+            try {
+                const res = await fetch('https://api.waqi.info/feed/geo:9.5916;76.5222/?token=demo');
+                const json = await res.json();
+                if (json.status === 'ok') {
+                    setAqi(json.data);
+                }
+            } catch {
+                // silently fail
+            } finally {
+                setAqiLoading(false);
+            }
+        };
+        fetchAqi();
+    }, []);
+
+    const fetchAllData = async () => {
+        setLoading(true);
+        try {
+            const [profileRes, leaderboardRes, marketplaceRes, submissionsRes, carbonRes, purchaseRes] = await Promise.allSettled([
+                getProfile(),
+                getLeaderboard(),
+                getMarketplaceProjects(),
+                getMySubmissions(),
+                getCarbonHistory(),
+                getPurchaseHistory(),
+            ]);
+            if (profileRes.status === 'fulfilled') setProfile(profileRes.value.data);
+            if (leaderboardRes.status === 'fulfilled') setLeaderboard(leaderboardRes.value.data);
+            if (marketplaceRes.status === 'fulfilled') setMarketplace(marketplaceRes.value.data);
+            if (submissionsRes.status === 'fulfilled') setSubmissions(submissionsRes.value.data);
+            if (carbonRes.status === 'fulfilled') setCarbonHistory(carbonRes.value.data);
+            if (purchaseRes.status === 'fulfilled') setPurchaseHistory(purchaseRes.value.data);
+        } catch {
+            // individual errors handled by interceptor (401 → redirect)
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('username');
+        navigate('/');
+    };
+
+    const handleSubmitEcoAction = async (e) => {
+        e.preventDefault();
+        if (!submitForm.title || !submitForm.description || !submitFile) {
+            setSubmitMessage('Please fill all fields and upload a proof image.');
+            return;
+        }
+        setSubmitLoading(true);
+        setSubmitMessage('');
+        try {
+            const fd = new FormData();
+            fd.append('title', submitForm.title);
+            fd.append('category', submitForm.category);
+            fd.append('description', submitForm.description);
+            fd.append('proof_image', submitFile);
+            await submitEcoAction(fd);
+            setSubmitMessage('✅ Eco-action submitted successfully!');
+            setSubmitForm({ title: '', category: 'Transport', description: '' });
+            setSubmitFile(null);
+            // Refresh submissions
+            const res = await getMySubmissions();
+            setSubmissions(res.data);
+        } catch {
+            setSubmitMessage('❌ Failed to submit. Please try again.');
+        } finally {
+            setSubmitLoading(false);
+        }
+    };
+
+    const handlePurchase = async (projectId, qty) => {
+        setPurchaseLoading(projectId);
+        setPurchaseMessage('');
+        try {
+            const res = await purchaseCredits(projectId, qty || 1);
+            setPurchaseMessage(`✅ ${res.data.message} — ${res.data.credits_added} credits for ₹${res.data.total_price?.toFixed(2)}`);
+            // Refresh data
+            fetchAllData();
+        } catch (err) {
+            setPurchaseMessage(`❌ ${err.response?.data?.error || 'Purchase failed'}`);
+        } finally {
+            setPurchaseLoading(null);
+        }
+    };
+
+    const handleCarbonSubmit = async (e) => {
+        e.preventDefault();
+        setCarbonLoading(true);
+        setCarbonMessage('');
+        try {
+            await submitCarbonReport(carbonForm);
+            setCarbonMessage('✅ Carbon report submitted successfully!');
+            // Reset form
+            setCarbonForm({
+                transport_distance: 0,
+                transport_vehicle_type: 'car_petrol_small',
+                electricity_units: 0,
+                lpg_used: 0,
+                water_used: 0,
+                water_source: 'municipal',
+                waste_weight: 0,
+                waste_type_method: 'organic_landfill'
+            });
+            // Refresh data (profile and carbon history)
+            fetchAllData();
+        } catch {
+            setCarbonMessage('❌ Failed to submit carbon report.');
+        } finally {
+            setCarbonLoading(false);
+        }
+    };
 
     const menuItems = [
         { name: 'Overview', icon: <LayoutDashboard size={20} /> },
         { name: 'Carbon', icon: <Leaf size={20} /> },
         { name: 'Profile', icon: <User size={20} /> },
-        { name: 'My Orders', icon: <ShoppingBag size={20} /> },
+        { name: 'Eco Actions', icon: <FileText size={20} /> },
+        { name: 'Marketplace', icon: <ShoppingBag size={20} /> },
         { name: 'Community', icon: <Users size={20} /> },
         { name: 'Settings', icon: <Settings size={20} /> },
     ];
 
-    const summaryStats = [
-        { title: 'Carbon Saved', value: '124 kg', change: '+12%', trend: 'up', icon: <Leaf className="text-green-600" />, bg: 'bg-green-50', changeColor: 'text-green-600' },
-        { title: 'Trees Planted', value: '15', change: '+3 new', trend: 'up', icon: <TrendingUp className="text-blue-600" />, bg: 'bg-blue-50', changeColor: 'text-blue-600' },
-        { title: 'Eco Points', value: '2,450', change: 'Silver Tier', trend: 'stable', icon: <Award className="text-amber-600" />, bg: 'bg-amber-50', changeColor: 'text-amber-600' },
-    ];
+    // Calculate dynamic categories from history
+    const getCategoryTotal = (history) => {
+        const totals = { transport: 0, energy: 0, water: 0, waste: 0 };
+        // Constants from backend for calculation
+        const TRANSPORT_FACTORS = {
+            'car_petrol_large': 0.1730, 'car_petrol_small': 0.1264,
+            'bike_motorcycle': 0.0248, 'bike_scooter': 0.0421,
+            'bus_public': 0.0730, 'train_rail': 0.0170,
+        };
+        const GRID_FACTOR = 0.82;
+        const LPG_FACTOR = 3.13;
+        const WATER_FACTORS = { 'municipal': 1.69, 'borewell': 0.67 };
+        const WASTE_FACTORS = { 'organic_landfill': 1.29, 'organic_composted': 0.32, 'paper': 2.50 };
 
-    const weeklyEmissions = [
-        { day: 'Mon', value: 8.2 },
-        { day: 'Tue', value: 6.5 },
-        { day: 'Wed', value: 9.8 },
-        { day: 'Thu', value: 5.1 },
-        { day: 'Fri', value: 7.3 },
-        { day: 'Sat', value: 3.9 },
-        { day: 'Sun', value: 4.2 },
-    ];
+        history.forEach(h => {
+            if (h.transport_vehicle_type) totals.transport += h.transport_distance * (TRANSPORT_FACTORS[h.transport_vehicle_type] || 0);
+            totals.energy += (h.electricity_units * GRID_FACTOR) + (h.lpg_used * LPG_FACTOR);
+            if (h.water_source) totals.water += (h.water_used / 1000.0) * (WATER_FACTORS[h.water_source] || 0);
+            if (h.waste_type_method) totals.waste += h.waste_weight * (WASTE_FACTORS[h.waste_type_method] || 0);
+        });
+        return totals;
+    };
 
-    const weeklyProduction = [
-        { day: 'Mon', value: 3.1 },
-        { day: 'Tue', value: 4.2 },
-        { day: 'Wed', value: 3.8 },
-        { day: 'Thu', value: 5.5 },
-        { day: 'Fri', value: 4.1 },
-        { day: 'Sat', value: 6.2 },
-        { day: 'Sun', value: 5.8 },
-    ];
-
+    const catTotals = getCategoryTotal(carbonHistory);
     const carbonCategories = [
-        { icon: Car, label: 'Transport', value: 32, color: '#6366f1' },
-        { icon: Home, label: 'Home Energy', value: 21, color: '#f59e0b' },
-        { icon: Utensils, label: 'Food & Diet', value: 18, color: '#10b981' },
-        { icon: ShoppingBag, label: 'Shopping', value: 14, color: '#ec4899' },
-        { icon: Zap, label: 'Electronics', value: 9, color: '#3b82f6' },
+        { icon: Car, label: 'Transport', value: Math.round(catTotals.transport), color: '#6366f1' },
+        { icon: Zap, label: 'Energy (Elec/LPG)', value: Math.round(catTotals.energy), color: '#f59e0b' },
+        { icon: Wind, label: 'Water Usage', value: Math.round(catTotals.water), color: '#3b82f6' },
+        { icon: Package, label: 'Waste', value: Math.round(catTotals.waste), color: '#10b981' },
     ];
-
     const totalCarbon = carbonCategories.reduce((s, c) => s + c.value, 0);
 
-    const orders = [
-        { id: '#GR-2401', product: 'Bamboo Utensil Set', date: 'Feb 20, 2026', status: 'Delivered', amount: '$24.00', ecoPoints: 120 },
-        { id: '#GR-2356', product: 'Organic Cotton Tote', date: 'Feb 15, 2026', status: 'In Transit', amount: '$18.00', ecoPoints: 90 },
-        { id: '#GR-2290', product: 'Eco Glass Bottle', date: 'Feb 10, 2026', status: 'Delivered', amount: '$32.00', ecoPoints: 160 },
-        { id: '#GR-2201', product: 'Recycled Notebook', date: 'Feb 5, 2026', status: 'Delivered', amount: '$14.00', ecoPoints: 70 },
+    // Dynamic Weekly Stats
+    const weeklyEmissions = [...carbonHistory].reverse().slice(-7).map(h => ({
+        day: new Date(h.date).toLocaleDateString('en-US', { weekday: 'short' }),
+        value: h.total_co2
+    }));
+    while (weeklyEmissions.length < 7) weeklyEmissions.unshift({ day: '-', value: 0 });
+
+    const weeklyProduction = [
+        { day: 'Mon', value: 0 },
+        { day: 'Tue', value: 0 },
+        { day: 'Wed', value: 0 },
+        { day: 'Thu', value: 0 },
+        { day: 'Fri', value: 0 },
+        { day: 'Sat', value: 0 },
+        { day: 'Sun', value: 0 },
+    ];
+    // Fill weekly production from verified submissions
+    submissions.filter(s => s.status === 'verified').forEach(s => {
+        const d = new Date(s.reviewed_at);
+        const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+        const dayObj = weeklyProduction.find(wp => wp.day === dayName);
+        if (dayObj) dayObj.value += (s.points * 0.5);
+    });
+
+    const summaryStats = [
+        {
+            title: 'Carbon Credits',
+            value: profile ? `${profile.carbon_credits.toFixed(1)}` : '...',
+            change: profile?.carbon_credits > 0 ? 'Active' : 'None yet',
+            trend: 'up',
+            icon: <Leaf className="text-green-600" />,
+            bg: 'bg-green-50',
+            changeColor: 'text-green-600',
+        },
+        {
+            title: 'Total Emission',
+            value: profile ? `${profile.total_emission.toFixed(1)} kg` : '...',
+            change: 'Tracked',
+            trend: 'stable',
+            icon: <TrendingUp className="text-blue-600" />,
+            bg: 'bg-blue-50',
+            changeColor: 'text-blue-600',
+        },
+        {
+            title: 'Eco Actions',
+            value: `${submissions.length}`,
+            change: submissions.filter(s => s.status === 'verified').length + ' verified',
+            trend: 'up',
+            icon: <Award className="text-amber-600" />,
+            bg: 'bg-amber-50',
+            changeColor: 'text-amber-600',
+        },
     ];
 
-    const communityPosts = [
-        { name: 'Sarah M.', avatar: 'https://i.pravatar.cc/150?u=s1', text: 'Just finished a zero-waste cooking challenge! 🌿 It was easier than I thought.', likes: 48, time: '2h ago', badge: 'Eco Chef' },
-        { name: 'James K.', avatar: 'https://i.pravatar.cc/150?u=j2', text: 'My solar panels produced more energy than I used today! Net positive life is real.', likes: 92, time: '4h ago', badge: 'Solar Hero' },
-        { name: 'Priya S.', avatar: 'https://i.pravatar.cc/150?u=p3', text: 'Switched to bamboo everything this month. My waste reduced by 60%! Feeling amazing.', likes: 73, time: '6h ago', badge: 'Tree Hugger' },
+    /* ── Loading ── */
+    if (loading) {
+        return (
+            <div className="flex h-screen bg-gray-50 items-center justify-center">
+                <div className="text-center">
+                    <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-gray-500 font-medium">Loading your dashboard...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // --- AQI helper (pure function, no hooks) ---
+    const getAqiInfo = (val) => {
+        if (val <= 50) return { label: 'Good', color: '#10b981', bg: 'bg-green-50', text: 'text-green-700', desc: 'Air quality is satisfactory. Perfect for outdoor activities.' };
+        if (val <= 100) return { label: 'Moderate', color: '#f59e0b', bg: 'bg-yellow-50', text: 'text-yellow-700', desc: 'Air quality is acceptable. Sensitive individuals should limit prolonged outdoor exertion.' };
+        if (val <= 150) return { label: 'Unhealthy for Sensitive', color: '#f97316', bg: 'bg-orange-50', text: 'text-orange-700', desc: 'Sensitive groups may experience health effects. Consider reducing outdoor activities.' };
+        if (val <= 200) return { label: 'Unhealthy', color: '#ef4444', bg: 'bg-red-50', text: 'text-red-700', desc: 'Everyone may experience health effects. Reduce prolonged outdoor exertion.' };
+        return { label: 'Hazardous', color: '#7c3aed', bg: 'bg-purple-50', text: 'text-purple-700', desc: 'Health alert. Everyone should avoid outdoor activity.' };
+    };
+
+    const aqiVal = aqi?.aqi || 0;
+    const aqiInfo = getAqiInfo(aqiVal);
+
+    // --- Suggestion data ---
+    const suggestions = [
+        { title: 'Switch to LED Bulbs', desc: 'Replacing your 5 most used bulbs could save 120kg CO₂/year', impact: 'High', difficulty: 'Low', cost: 'Low', icon: '💡' },
+        { title: 'Cycle Short Trips', desc: 'Biking instead of driving for <3km trips saves ~0.9kg CO₂ per ride', impact: 'Medium', difficulty: 'Medium', cost: 'None', icon: '🚲' },
+        { title: 'Compost Food Waste', desc: 'Composting kitchen scraps can reduce your waste emissions by 50%', impact: 'High', difficulty: 'Low', cost: 'Low', icon: '♻️' },
     ];
+    const todaySuggestion = suggestions[new Date().getDay() % suggestions.length];
 
     /* ── OVERVIEW ── */
     const Overview = () => (
@@ -178,13 +440,13 @@ const Dashboard = () => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold font-outfit text-primary-900">Dashboard</h1>
-                    <p className="text-gray-500">Welcome back, Alex! Here's your eco-impact overview.</p>
+                    <p className="text-gray-500">Welcome back, {username}! Here's your eco-impact overview.</p>
                 </div>
                 <button
-                    onClick={() => navigate('/')}
+                    onClick={() => setActiveTab('Eco Actions')}
                     className="bg-primary-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-primary-700 transition-colors shadow-lg shadow-primary-200 flex items-center gap-2"
                 >
-                    <ShoppingBag size={18} /> New Order
+                    <Upload size={18} /> Submit Eco Action
                 </button>
             </div>
 
@@ -205,182 +467,422 @@ const Dashboard = () => {
                 ))}
             </div>
 
-            {/* Weekly Carbon Charts */}
-            <div className="grid lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-[24px] border border-gray-100 p-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <div>
-                            <h3 className="text-lg font-bold font-outfit text-primary-900">Weekly Emissions</h3>
-                            <p className="text-sm text-gray-400">kg CO₂ emitted per day</p>
-                        </div>
-                        <div className="flex items-center gap-1 bg-red-50 text-red-500 px-3 py-1 rounded-full text-xs font-bold">
-                            <TrendingDown className="w-3.5 h-3.5" /> 8% from last week
-                        </div>
-                    </div>
-                    <WeeklyBarChart data={weeklyEmissions} label="kg CO₂" color="#f87171" />
-                    <p className="text-xs text-gray-400 mt-2 text-center">Total this week: <strong className="text-gray-700">45.0 kg</strong></p>
-                </div>
-
-                <div className="bg-white rounded-[24px] border border-gray-100 p-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <div>
-                            <h3 className="text-lg font-bold font-outfit text-primary-900">Green Production</h3>
-                            <p className="text-sm text-gray-400">kg CO₂ offset per day</p>
-                        </div>
-                        <div className="flex items-center gap-1 bg-green-50 text-green-600 px-3 py-1 rounded-full text-xs font-bold">
-                            <TrendingUp className="w-3.5 h-3.5" /> 15% from last week
-                        </div>
-                    </div>
-                    <WeeklyBarChart data={weeklyProduction} label="kg offset" color="#4ade80" />
-                    <p className="text-xs text-gray-400 mt-2 text-center">Total this week: <strong className="text-gray-700">32.7 kg</strong></p>
-                </div>
-            </div>
-
-            {/* Activity + Goal */}
+            {/* Two-column: Main content + Right sidebar */}
             <div className="grid lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white rounded-[32px] border border-gray-100 p-6">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="text-xl font-bold font-outfit text-primary-900">Recent Activity</h3>
-                        <button onClick={() => setActiveTab('My Orders')} className="text-primary-600 text-sm font-bold hover:underline flex items-center gap-1">
-                            View All <ChevronRight className="w-4 h-4" />
-                        </button>
-                    </div>
-                    <div className="space-y-4">
-                        {orders.slice(0, 3).map((order) => (
-                            <div key={order.id} className="flex items-center gap-4 p-3 hover:bg-gray-50 rounded-2xl transition-colors border border-transparent hover:border-gray-100">
-                                <div className="w-11 h-11 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 shrink-0">
-                                    <ShoppingBag size={18} />
+                {/* LEFT — main content (2/3) */}
+                <div className="lg:col-span-2 space-y-6">
+                    {/* Weekly Carbon Charts */}
+                    <div className="grid md:grid-cols-2 gap-6">
+                        <div className="bg-white rounded-[24px] border border-gray-100 p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <div>
+                                    <h3 className="text-lg font-bold font-outfit text-primary-900">Weekly Emissions</h3>
+                                    <p className="text-sm text-gray-400">kg CO₂ emitted per day</p>
                                 </div>
-                                <div className="flex-1">
-                                    <h4 className="font-bold text-gray-900 text-sm">{order.product}</h4>
-                                    <p className="text-xs text-gray-400">{order.date}</p>
-                                </div>
-                                <div className="text-right">
-                                    <span className="font-bold text-primary-600">{order.amount}</span>
-                                    <p className="text-[10px] text-green-500 font-medium">+{order.ecoPoints} pts</p>
+                                <div className="flex items-center gap-1 bg-red-50 text-red-500 px-3 py-1 rounded-full text-xs font-bold">
+                                    <TrendingDown className="w-3.5 h-3.5" /> 8%
                                 </div>
                             </div>
-                        ))}
+                            <WeeklyBarChart data={weeklyEmissions} label="kg CO₂" color="#f87171" />
+                        </div>
+
+                        <div className="bg-white rounded-[24px] border border-gray-100 p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <div>
+                                    <h3 className="text-lg font-bold font-outfit text-primary-900">Green Production</h3>
+                                    <p className="text-sm text-gray-400">kg CO₂ offset per day</p>
+                                </div>
+                                <div className="flex items-center gap-1 bg-green-50 text-green-600 px-3 py-1 rounded-full text-xs font-bold">
+                                    <TrendingUp className="w-3.5 h-3.5" /> 15%
+                                </div>
+                            </div>
+                            <WeeklyBarChart data={weeklyProduction} label="kg offset" color="#4ade80" />
+                        </div>
+                    </div>
+
+                    {/* Recent Submissions + Credits */}
+                    <div className="grid md:grid-cols-3 gap-6">
+                        <div className="md:col-span-2 bg-white rounded-[32px] border border-gray-100 p-6">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-bold font-outfit text-primary-900">Recent Eco Actions</h3>
+                                <button onClick={() => setActiveTab('Eco Actions')} className="text-primary-600 text-sm font-bold hover:underline flex items-center gap-1">
+                                    View All <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                            {submissions.length === 0 ? (
+                                <p className="text-gray-400 text-center py-8">No eco actions submitted yet. Start making an impact!</p>
+                            ) : (
+                                <div className="space-y-4">
+                                    {submissions.slice(0, 3).map((sub) => (
+                                        <div key={sub.id} className="flex items-center gap-4 p-3 hover:bg-gray-50 rounded-2xl transition-colors border border-transparent hover:border-gray-100">
+                                            <div className="w-11 h-11 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 shrink-0">
+                                                <Leaf size={18} />
+                                            </div>
+                                            <div className="flex-1">
+                                                <h4 className="font-bold text-gray-900 text-sm">{sub.title}</h4>
+                                                <p className="text-xs text-gray-400">{sub.category} · {new Date(sub.submitted_at).toLocaleDateString()}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${sub.status === 'verified' ? 'bg-green-50 text-green-600' : sub.status === 'rejected' ? 'bg-red-50 text-red-500' : 'bg-yellow-50 text-yellow-600'}`}>
+                                                    {sub.status === 'verified' ? <Check className="inline w-3 h-3 mr-0.5" /> : <Clock className="inline w-3 h-3 mr-0.5" />}
+                                                    {sub.status.charAt(0).toUpperCase() + sub.status.slice(1)}
+                                                </span>
+                                                {sub.points > 0 && <p className="text-[10px] text-green-500 font-medium mt-1">+{sub.points} pts</p>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="bg-primary-900 rounded-[32px] p-7 text-white relative overflow-hidden flex flex-col justify-between">
+                            <div className="absolute top-0 right-0 w-28 h-28 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
+                            <div>
+                                <div className="flex items-center gap-2 mb-2 text-primary-200">
+                                    <Award size={16} />
+                                    <span className="text-xs font-bold uppercase tracking-wider">Your Credits</span>
+                                </div>
+                                <h3 className="text-xl font-bold font-outfit mb-3">{profile?.carbon_credits?.toFixed(1) || 0} Credits</h3>
+                                <p className="text-primary-200 text-sm mb-5">Earn more by submitting verified eco-actions!</p>
+                            </div>
+                            <div>
+                                <div className="w-full bg-white/20 h-2.5 rounded-full mb-2">
+                                    <div className="h-full bg-yellow-400 rounded-full" style={{ width: `${Math.min((profile?.carbon_credits || 0) * 10, 100)}%` }}></div>
+                                </div>
+                                <div className="flex justify-between text-xs text-primary-300">
+                                    <span>{profile?.carbon_credits?.toFixed(1) || 0} earned</span><span>10 goal</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div className="bg-primary-900 rounded-[32px] p-7 text-white relative overflow-hidden flex flex-col justify-between">
-                    <div className="absolute top-0 right-0 w-28 h-28 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
-                    <div>
-                        <div className="flex items-center gap-2 mb-2 text-primary-200">
-                            <Award size={16} />
-                            <span className="text-xs font-bold uppercase tracking-wider">Weekly Goal</span>
+                {/* RIGHT — Sidebar widgets (1/3) */}
+                <div className="space-y-6">
+
+                    {/* 1. Top Recommendation */}
+                    <div className="bg-white rounded-[24px] border border-gray-100 p-5 hover:shadow-lg transition-shadow">
+                        <div className="flex items-center gap-2 mb-3">
+                            <span className="text-2xl">{todaySuggestion.icon}</span>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-primary-500">Top Recommendation</span>
                         </div>
-                        <h3 className="text-xl font-bold font-outfit mb-3">Plant 5 Trees</h3>
-                        <p className="text-primary-200 text-sm mb-5">You're 60% there! Purchase one more sustainable kit.</p>
+                        <h4 className="text-lg font-bold text-gray-900 mb-1 font-outfit">{todaySuggestion.title}</h4>
+                        <p className="text-sm text-gray-500 mb-4 leading-relaxed">{todaySuggestion.desc}</p>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="text-[10px] bg-green-50 text-green-700 font-bold px-2.5 py-1 rounded-full">Impact: {todaySuggestion.impact}</span>
+                            <span className="text-[10px] bg-blue-50 text-blue-700 font-bold px-2.5 py-1 rounded-full">Difficulty: {todaySuggestion.difficulty}</span>
+                            <span className="text-[10px] bg-purple-50 text-purple-700 font-bold px-2.5 py-1 rounded-full">Cost: {todaySuggestion.cost}</span>
+                        </div>
                     </div>
-                    <div>
-                        <div className="w-full bg-white/20 h-2.5 rounded-full mb-2">
-                            <div className="w-[60%] h-full bg-yellow-400 rounded-full"></div>
+
+                    {/* 2. Quick Actions Checklist */}
+                    <div className="bg-white rounded-[24px] border border-gray-100 p-5 hover:shadow-lg transition-shadow">
+                        <h4 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+                            <Check className="w-4 h-4 text-primary-600" />
+                            Quick Actions
+                        </h4>
+                        <div className="space-y-3">
+                            {checklist.map(item => (
+                                <label
+                                    key={item.id}
+                                    className="flex items-center gap-3 cursor-pointer group"
+                                    onClick={(e) => { e.preventDefault(); toggleCheck(item.id); }}
+                                >
+                                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${item.done ? 'bg-primary-600 border-primary-600' : 'border-gray-300 group-hover:border-primary-400'}`}>
+                                        {item.done && <Check className="w-3 h-3 text-white" />}
+                                    </div>
+                                    <span className={`text-sm font-medium transition-all ${item.done ? 'line-through text-gray-400' : 'text-gray-700'}`}>{item.text}</span>
+                                </label>
+                            ))}
                         </div>
-                        <div className="flex justify-between text-xs text-primary-300">
-                            <span>3 planted</span><span>5 goal</span>
+                        <div className="mt-4 pt-3 border-t border-gray-100">
+                            <div className="flex justify-between items-center text-xs text-gray-400">
+                                <span>{checklist.filter(c => c.done).length}/{checklist.length} completed</span>
+                                <button
+                                    onClick={() => { setChecklist(defaultChecklist); localStorage.setItem(CHECKLIST_KEY, JSON.stringify(defaultChecklist)); }}
+                                    className="text-primary-500 font-bold hover:underline"
+                                >
+                                    Reset
+                                </button>
+                            </div>
+                            <div className="w-full bg-gray-100 h-1.5 rounded-full mt-2 overflow-hidden">
+                                <div className="h-full bg-primary-500 rounded-full transition-all duration-500" style={{ width: `${(checklist.filter(c => c.done).length / checklist.length) * 100}%` }}></div>
+                            </div>
                         </div>
                     </div>
+
+                    {/* 3. Live AQI Tracker — Kottayam */}
+                    <div className={`rounded-[24px] border border-gray-100 p-5 hover:shadow-lg transition-shadow ${aqiInfo.bg}`}>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <Wind className={`w-4 h-4 ${aqiInfo.text}`} />
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Local Air Quality</span>
+                            </div>
+                            <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                        </div>
+
+                        {aqiLoading ? (
+                            <div className="flex items-center gap-2 py-4">
+                                <div className="w-5 h-5 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin"></div>
+                                <span className="text-sm text-gray-400">Fetching AQI...</span>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="flex items-end justify-between mb-2">
+                                    <div>
+                                        <h4 className={`text-2xl font-bold font-outfit ${aqiInfo.text}`}>{aqiInfo.label}</h4>
+                                        <p className="text-xs text-gray-500 font-medium mt-0.5">Kottayam, Kerala</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-4xl font-bold font-outfit" style={{ color: aqiInfo.color }}>{aqiVal}</p>
+                                        <p className="text-[10px] text-gray-400 font-bold uppercase">AQI</p>
+                                    </div>
+                                </div>
+                                <p className={`text-xs ${aqiInfo.text} leading-relaxed mb-3`}>{aqiInfo.desc}</p>
+
+                                {/* AQI scale bar */}
+                                <div className="relative mt-1">
+                                    <div className="w-full h-2 rounded-full overflow-hidden flex">
+                                        <div className="flex-1 bg-green-400"></div>
+                                        <div className="flex-1 bg-yellow-400"></div>
+                                        <div className="flex-1 bg-orange-400"></div>
+                                        <div className="flex-1 bg-red-400"></div>
+                                        <div className="flex-1 bg-purple-500"></div>
+                                    </div>
+                                    {/* marker */}
+                                    <div
+                                        className="absolute top-[-3px] w-3 h-3 rounded-full border-2 border-white shadow-md"
+                                        style={{
+                                            left: `${Math.min((aqiVal / 300) * 100, 98)}%`,
+                                            backgroundColor: aqiInfo.color,
+                                            transition: 'left 1s ease',
+                                        }}
+                                    ></div>
+                                </div>
+                                <div className="flex justify-between text-[9px] text-gray-400 mt-1">
+                                    <span>0</span>
+                                    <span>50</span>
+                                    <span>100</span>
+                                    <span>150</span>
+                                    <span>200</span>
+                                    <span>300+</span>
+                                </div>
+
+                                {aqi?.time?.s && (
+                                    <p className="text-[10px] text-gray-400 mt-3 text-right">
+                                        Updated: {new Date(aqi.time.s).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                                    </p>
+                                )}
+                            </>
+                        )}
+                    </div>
+
                 </div>
             </div>
         </div>
     );
 
     /* ── CARBON TAB ── */
-    const CarbonTracker = () => (
-        <div className="space-y-8 animate-fade-in">
-            <div>
-                <h1 className="text-3xl font-bold font-outfit text-primary-900">Carbon Tracker</h1>
-                <p className="text-gray-500">Monitor your weekly carbon emissions and green production.</p>
-            </div>
+    const CarbonTracker = () => {
+        // Calculate recent history for chart (last 7 entries)
+        const recentHistory = [...carbonHistory].reverse().slice(-7).map(h => ({
+            day: new Date(h.date).toLocaleDateString('en-US', { weekday: 'short' }),
+            value: h.total_co2
+        }));
 
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                    { label: 'This Week - Emitted', value: '45.0 kg', sub: 'CO₂', color: 'text-red-500', bg: 'bg-red-50', icon: Wind },
-                    { label: 'This Week - Offset', value: '32.7 kg', sub: 'CO₂', color: 'text-green-600', bg: 'bg-green-50', icon: Leaf },
-                    { label: 'Net Balance', value: '-12.3 kg', sub: 'Net CO₂', color: 'text-blue-600', bg: 'bg-blue-50', icon: BarChart2 },
-                    { label: 'Carbon Score', value: '78/100', sub: 'Excellent', color: 'text-amber-600', bg: 'bg-amber-50', icon: Award },
-                ].map((card, i) => (
-                    <div key={i} className={`${card.bg} rounded-[20px] p-5`}>
-                        <card.icon className={`w-6 h-6 ${card.color} mb-3`} />
-                        <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
-                        <p className="text-xs text-gray-500 font-medium">{card.label}</p>
-                    </div>
-                ))}
-            </div>
+        // Fill with zeros if less than 7 days
+        while (recentHistory.length < 7) {
+            recentHistory.unshift({ day: '-', value: 0 });
+        }
 
-            {/* Weekly Charts - full width */}
-            <div className="bg-white rounded-[24px] border border-gray-100 p-6">
-                <h3 className="text-lg font-bold font-outfit text-primary-900 mb-1">Emission vs. Offset Comparison</h3>
-                <p className="text-sm text-gray-400 mb-4">This week's daily carbon footprint (kg CO₂)</p>
-                <div className="grid md:grid-cols-2 gap-8">
+        const thisWeekEmission = carbonHistory.slice(0, 7).reduce((s, h) => s + h.total_co2, 0);
+        const thisWeekOffset = submissions
+            .filter(s => s.status === 'verified' && new Date(s.reviewed_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+            .reduce((s, sub) => s + (sub.points * 0.5), 0); // Assuming 1 point = 0.5kg CO2 offset for visualization
+
+        return (
+            <div className="space-y-8 animate-fade-in">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <p className="text-sm font-semibold text-red-400 mb-3 flex items-center gap-1.5">
-                            <span className="w-3 h-3 rounded-full bg-red-400 inline-block"></span>
-                            Carbon Emitted
-                        </p>
-                        <WeeklyBarChart data={weeklyEmissions} label="kg CO₂" color="#f87171" />
-                    </div>
-                    <div>
-                        <p className="text-sm font-semibold text-green-500 mb-3 flex items-center gap-1.5">
-                            <span className="w-3 h-3 rounded-full bg-green-400 inline-block"></span>
-                            Carbon Offset
-                        </p>
-                        <WeeklyBarChart data={weeklyProduction} label="kg offset" color="#4ade80" />
-                    </div>
-                </div>
-            </div>
-
-            {/* By Category + Donut */}
-            <div className="grid md:grid-cols-3 gap-6">
-                <div className="md:col-span-2 bg-white rounded-[24px] border border-gray-100 p-6">
-                    <h3 className="text-lg font-bold font-outfit text-primary-900 mb-5">Emissions by Category</h3>
-                    <div className="space-y-5">
-                        {carbonCategories.map((cat, i) => (
-                            <CategoryBar key={i} {...cat} max={totalCarbon} />
-                        ))}
+                        <h1 className="text-3xl font-bold font-outfit text-primary-900">Carbon Tracker</h1>
+                        <p className="text-gray-500">Monitor your weekly carbon emissions and submit daily reports.</p>
                     </div>
                 </div>
 
-                <div className="bg-white rounded-[24px] border border-gray-100 p-6 flex flex-col items-center">
-                    <h3 className="text-lg font-bold font-outfit text-primary-900 mb-4">Breakdown</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                        {carbonCategories.map((cat, i) => (
-                            <DonutChart key={i} value={cat.value} total={totalCarbon} color={cat.color} label={cat.label} />
-                        ))}
-                    </div>
-                </div>
-            </div>
+                {/* Submit Carbon Report Form */}
+                <div className="bg-white rounded-[24px] border border-gray-100 p-6 shadow-sm">
+                    <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <Wind size={18} className="text-primary-600" /> Log Daily Activity
+                    </h3>
+                    {carbonMessage && (
+                        <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${carbonMessage.startsWith('✅') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                            {carbonMessage}
+                        </div>
+                    )}
+                    <form onSubmit={handleCarbonSubmit} className="space-y-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {/* Transport */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-gray-400 uppercase">Transportation</label>
+                                <select
+                                    value={carbonForm.transport_vehicle_type}
+                                    onChange={e => setCarbonForm({ ...carbonForm, transport_vehicle_type: e.target.value })}
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                >
+                                    <option value="car_petrol_large">Car (Petrol &gt;1200cc)</option>
+                                    <option value="car_petrol_small">Car (Petrol &lt;1200cc)</option>
+                                    <option value="bike_motorcycle">Motorcycle</option>
+                                    <option value="bike_scooter">Scooter</option>
+                                    <option value="bus_public">Public Bus</option>
+                                    <option value="train_rail">Train/Rail</option>
+                                </select>
+                                <input
+                                    type="number"
+                                    placeholder="Distance (km)"
+                                    value={carbonForm.transport_distance || ''}
+                                    onChange={e => setCarbonForm({ ...carbonForm, transport_distance: parseFloat(e.target.value) || 0 })}
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                />
+                            </div>
 
-            {/* Global vs User */}
-            <div className="bg-gradient-to-br from-primary-900 to-primary-700 rounded-[24px] p-8 text-white">
-                <div className="flex items-center gap-2 mb-4">
-                    <Globe className="w-5 h-5 text-primary-200" />
-                    <h3 className="text-lg font-bold font-outfit">Your Impact vs. Global Average</h3>
+                            {/* Energy */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-gray-400 uppercase">Home Energy</label>
+                                <div className="relative">
+                                    <input
+                                        type="number"
+                                        placeholder="Electricity (kWh)"
+                                        value={carbonForm.electricity_units || ''}
+                                        onChange={e => setCarbonForm({ ...carbonForm, electricity_units: parseFloat(e.target.value) || 0 })}
+                                        className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                    />
+                                    <span className="absolute right-3 top-2 text-[10px] text-gray-400 font-bold">kWh</span>
+                                </div>
+                                <div className="relative">
+                                    <input
+                                        type="number"
+                                        placeholder="LPG (kg)"
+                                        value={carbonForm.lpg_used || ''}
+                                        onChange={e => setCarbonForm({ ...carbonForm, lpg_used: parseFloat(e.target.value) || 0 })}
+                                        className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                    />
+                                    <span className="absolute right-3 top-2 text-[10px] text-gray-400 font-bold">kg</span>
+                                </div>
+                            </div>
+
+                            {/* Water */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-gray-400 uppercase">Water Usage</label>
+                                <select
+                                    value={carbonForm.water_source}
+                                    onChange={e => setCarbonForm({ ...carbonForm, water_source: e.target.value })}
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                >
+                                    <option value="municipal">Municipal Supply</option>
+                                    <option value="borewell">Borewell Pump</option>
+                                </select>
+                                <div className="relative">
+                                    <input
+                                        type="number"
+                                        placeholder="Water (Liters)"
+                                        value={carbonForm.water_used || ''}
+                                        onChange={e => setCarbonForm({ ...carbonForm, water_used: parseFloat(e.target.value) || 0 })}
+                                        className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                    />
+                                    <span className="absolute right-3 top-2 text-[10px] text-gray-400 font-bold">L</span>
+                                </div>
+                            </div>
+
+                            {/* Waste */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-gray-400 uppercase">Waste</label>
+                                <select
+                                    value={carbonForm.waste_type_method}
+                                    onChange={e => setCarbonForm({ ...carbonForm, waste_type_method: e.target.value })}
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                >
+                                    <option value="organic_landfill">Organic (Landfill)</option>
+                                    <option value="organic_composted">Organic (Composted)</option>
+                                    <option value="paper">Paper Waste</option>
+                                </select>
+                                <div className="relative">
+                                    <input
+                                        type="number"
+                                        placeholder="Weight (kg)"
+                                        value={carbonForm.waste_weight || ''}
+                                        onChange={e => setCarbonForm({ ...carbonForm, waste_weight: parseFloat(e.target.value) || 0 })}
+                                        className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                    />
+                                    <span className="absolute right-3 top-2 text-[10px] text-gray-400 font-bold">kg</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex justify-end">
+                            <button
+                                type="submit"
+                                disabled={carbonLoading}
+                                className="bg-primary-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-primary-700 disabled:opacity-70 transition-colors shadow-lg shadow-primary-200"
+                            >
+                                {carbonLoading ? 'Submitting...' : 'Save Daily Report'}
+                            </button>
+                        </div>
+                    </form>
                 </div>
-                <div className="grid md:grid-cols-3 gap-6">
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {[
-                        { label: 'Your Weekly Footprint', value: '45 kg', bar: 45, max: 100, color: '#4ade80' },
-                        { label: 'Global Average', value: '85 kg', bar: 85, max: 100, color: '#f87171' },
-                        { label: 'Ecological Members Avg.', value: '38 kg', bar: 38, max: 100, color: '#60a5fa' },
-                    ].map((item, i) => (
-                        <div key={i}>
-                            <div className="flex justify-between mb-2">
-                                <span className="text-primary-200 text-sm">{item.label}</span>
-                                <span className="font-bold text-white">{item.value}</span>
-                            </div>
-                            <div className="w-full bg-white/20 h-3 rounded-full overflow-hidden">
-                                <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${item.bar}%`, backgroundColor: item.color }} />
-                            </div>
+                        { label: 'This Week - Emitted', value: `${thisWeekEmission.toFixed(1)} kg`, sub: 'CO₂', color: 'text-red-500', bg: 'bg-red-50', icon: Wind },
+                        { label: 'This Week - Offset', value: `${thisWeekOffset.toFixed(1)} kg`, sub: 'CO₂', color: 'text-green-600', bg: 'bg-green-50', icon: Leaf },
+                        { label: 'Net Balance', value: `${(thisWeekEmission - thisWeekOffset).toFixed(1)} kg`, sub: 'Net CO₂', color: 'text-blue-600', bg: 'bg-blue-50', icon: BarChart2 },
+                        { label: 'Carbon Credits', value: profile ? profile.carbon_credits.toFixed(1) : '0', sub: 'Earned', color: 'text-amber-600', bg: 'bg-amber-50', icon: Award },
+                    ].map((card, i) => (
+                        <div key={i} className={`${card.bg} rounded-[20px] p-5`}>
+                            <card.icon className={`w-6 h-6 ${card.color} mb-3`} />
+                            <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
+                            <p className="text-xs text-gray-500 font-medium">{card.label}</p>
                         </div>
                     ))}
                 </div>
-                <p className="mt-4 text-primary-200 text-sm">🎉 You're emitting <strong className="text-white">47% less</strong> than the global average. Keep it up!</p>
+
+                {/* Weekly Charts */}
+                <div className="bg-white rounded-[24px] border border-gray-100 p-6">
+                    <h3 className="text-lg font-bold font-outfit text-primary-900 mb-1">Weekly Emission History</h3>
+                    <p className="text-sm text-gray-400 mb-4">Daily carbon footprint (kg CO₂)</p>
+                    <div className="max-w-3xl">
+                        <WeeklyBarChart data={recentHistory} label="kg CO₂" color="#f87171" />
+                    </div>
+                </div>
+
+                {/* Recent History List */}
+                <div className="bg-white rounded-[24px] border border-gray-100 overflow-hidden">
+                    <div className="p-6 border-b border-gray-100">
+                        <h3 className="font-bold text-gray-900">Recent Logs</h3>
+                    </div>
+                    {carbonHistory.length === 0 ? (
+                        <p className="text-gray-400 text-center py-8">No carbon logs yet.</p>
+                    ) : (
+                        <div className="divide-y divide-gray-50">
+                            {carbonHistory.slice(0, 10).map((h) => (
+                                <div key={h.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                                    <div>
+                                        <p className="font-bold text-gray-900">{new Date(h.date).toLocaleDateString()}</p>
+                                        <p className="text-xs text-gray-400">
+                                            {h.transport_distance}km via {h.transport_vehicle_type?.replace(/_/g, ' ')} | {h.electricity_units}kWh Electricity
+                                        </p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="font-bold text-red-500">+{h.total_co2.toFixed(2)} kg</p>
+                                        <p className="text-[10px] text-gray-400">CO₂ emitted</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     /* ── PROFILE ── */
     const Profile = () => (
@@ -388,38 +890,24 @@ const Dashboard = () => {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold font-outfit text-primary-900">My Profile</h1>
-                    <p className="text-gray-500">Manage your personal information and impact settings.</p>
+                    <p className="text-gray-500">Your account information and eco-impact.</p>
                 </div>
-                <button className="bg-white border border-gray-200 text-gray-700 px-5 py-2.5 rounded-xl font-bold hover:bg-gray-50 transition-colors flex items-center gap-2">
-                    <Settings size={18} /> Edit Profile
-                </button>
             </div>
 
             <div className="grid md:grid-cols-3 gap-8">
                 <div className="md:col-span-1 space-y-5">
                     <div className="bg-white rounded-[32px] p-8 border border-gray-100 flex flex-col items-center text-center relative overflow-hidden">
                         <div className="w-full h-28 absolute top-0 left-0 bg-gradient-to-br from-primary-400 to-primary-600"></div>
-                        <div className="relative mt-10 mb-4 group cursor-pointer">
-                            <div className="w-28 h-28 rounded-full border-4 border-white shadow-lg overflow-hidden relative">
-                                <img src="https://i.pravatar.cc/300?u=user-me" alt="Profile" className="w-full h-full object-cover" />
-                                <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="text-white" /></div>
+                        <div className="relative mt-10 mb-4">
+                            <div className="w-28 h-28 rounded-full border-4 border-white shadow-lg overflow-hidden relative bg-primary-200 flex items-center justify-center">
+                                <User className="w-14 h-14 text-primary-600" />
                             </div>
-                            <div className="absolute bottom-1 right-1 bg-white p-1.5 rounded-full shadow-md text-primary-600"><Award size={14} /></div>
                         </div>
-                        <h2 className="text-xl font-bold text-primary-900 font-outfit">Alex Green</h2>
-                        <p className="text-primary-600 font-medium text-sm mb-1">Eco Warrior • Level 5</p>
-                        <p className="text-gray-400 text-xs mb-5">San Francisco, CA</p>
-                        <div className="w-full grid grid-cols-2 gap-4 border-t border-gray-100 pt-5">
-                            <div><p className="text-xl font-bold text-gray-900">124</p><p className="text-[10px] text-gray-400 uppercase tracking-wide">Actions</p></div>
-                            <div className="border-l border-gray-100"><p className="text-xl font-bold text-gray-900">1.2k</p><p className="text-[10px] text-gray-400 uppercase tracking-wide">Following</p></div>
-                        </div>
-                    </div>
-                    <div className="bg-white rounded-[24px] p-5 border border-gray-100">
-                        <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2 text-sm"><Award className="text-amber-500" size={16} />Badges</h3>
-                        <div className="flex gap-2 flex-wrap">
-                            {['Early Adopter', 'Tree Hugger', 'Plastic Free', 'Solar Champion'].map(b => (
-                                <span key={b} className="px-2.5 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full border border-amber-100">{b}</span>
-                            ))}
+                        <h2 className="text-xl font-bold text-primary-900 font-outfit">{profile?.username || username}</h2>
+                        <p className="text-primary-600 font-medium text-sm mb-1">{profile?.role === 'admin' ? 'Admin' : 'Eco Warrior'}</p>
+                        <div className="w-full grid grid-cols-2 gap-4 border-t border-gray-100 pt-5 mt-4">
+                            <div><p className="text-xl font-bold text-gray-900">{profile?.carbon_credits?.toFixed(1) || 0}</p><p className="text-[10px] text-gray-400 uppercase tracking-wide">Credits</p></div>
+                            <div className="border-l border-gray-100"><p className="text-xl font-bold text-gray-900">{submissions.length}</p><p className="text-[10px] text-gray-400 uppercase tracking-wide">Actions</p></div>
                         </div>
                     </div>
                 </div>
@@ -430,10 +918,10 @@ const Dashboard = () => {
                         <div className="space-y-5">
                             <div className="grid md:grid-cols-2 gap-5">
                                 {[
-                                    { label: 'Full Name', icon: User, value: 'Alex Green' },
-                                    { label: 'Email Address', icon: Mail, value: 'alex@greenify.eco' },
-                                    { label: 'Location', icon: MapPin, value: 'San Francisco, CA' },
-                                    { label: 'Join Date', icon: Calendar, value: 'March 15, 2024' },
+                                    { label: 'Username', icon: User, value: profile?.username || username },
+                                    { label: 'Email Address', icon: Mail, value: profile?.email || 'N/A' },
+                                    { label: 'Carbon Credits', icon: Leaf, value: `${profile?.carbon_credits?.toFixed(1) || 0} credits` },
+                                    { label: 'Total Emission', icon: Wind, value: `${profile?.total_emission?.toFixed(1) || 0} kg CO₂` },
                                 ].map(({ label, icon: Icon, value }) => (
                                     <div key={label}>
                                         <label className="text-xs font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">{label}</label>
@@ -443,83 +931,286 @@ const Dashboard = () => {
                                     </div>
                                 ))}
                             </div>
-                            <div>
-                                <label className="text-xs font-medium text-gray-400 mb-1.5 block uppercase tracking-wide">Bio</label>
-                                <div className="p-4 bg-gray-50 rounded-xl text-gray-900 text-sm leading-relaxed">
-                                    Passionate about sustainability and reducing plastic waste. I love hiking, gardening, and helping my local community adopt greener habits. 🌍
-                                </div>
-                            </div>
                         </div>
-                    </div>
-                    <div className="bg-primary-50 rounded-[24px] p-6 border border-primary-100 flex items-center justify-between">
-                        <div>
-                            <h3 className="text-base font-bold text-primary-900 mb-1">Share your profile</h3>
-                            <p className="text-primary-700 text-sm">Let others see your impact and badges.</p>
-                        </div>
-                        <button className="bg-primary-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-primary-700 transition-colors">Copy Link</button>
                     </div>
                 </div>
             </div>
         </div>
     );
 
-    /* ── ORDERS ── */
-    const MyOrders = () => (
+    /* ── ECO ACTIONS ── */
+    const EcoActions = () => (
         <div className="space-y-6 animate-fade-in">
             <div>
-                <h1 className="text-3xl font-bold font-outfit text-primary-900">My Orders</h1>
-                <p className="text-gray-500">Track your eco-friendly purchases and their impact.</p>
+                <h1 className="text-3xl font-bold font-outfit text-primary-900">Eco Actions</h1>
+                <p className="text-gray-500">Submit eco-friendly actions and track your contributions.</p>
             </div>
 
-            <div className="bg-white rounded-[24px] border border-gray-100 overflow-hidden">
-                <div className="p-6 border-b border-gray-100 flex justify-between items-center">
-                    <h3 className="font-bold text-gray-900">Order History</h3>
-                    <button onClick={() => navigate('/')} className="bg-primary-600 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-primary-700 transition-colors flex items-center gap-2">
-                        <ShoppingBag size={14} /> Shop Now
-                    </button>
-                </div>
-                <div className="divide-y divide-gray-50">
-                    {orders.map((order) => (
-                        <div key={order.id} className="p-5 flex flex-col md:flex-row md:items-center gap-4 hover:bg-gray-50 transition-colors">
-                            <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 shrink-0">
-                                <Package size={20} />
-                            </div>
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                    <h4 className="font-bold text-gray-900">{order.product}</h4>
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${order.status === 'Delivered' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
-                                        {order.status === 'Delivered' ? <Check className="inline w-3 h-3 mr-0.5" /> : <Clock className="inline w-3 h-3 mr-0.5" />}
-                                        {order.status}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-gray-400 mt-0.5">{order.id} · {order.date}</p>
-                            </div>
-                            <div className="flex items-center gap-6 text-right">
-                                <div>
-                                    <p className="font-bold text-gray-900">{order.amount}</p>
-                                    <p className="text-xs text-green-500 font-medium">+{order.ecoPoints} eco pts</p>
-                                </div>
-                                <button className="text-primary-600 hover:text-primary-700 text-sm font-bold flex items-center gap-1">
-                                    Details <ChevronRight className="w-4 h-4" />
+            {/* Submit Form */}
+            <div className="bg-white rounded-[24px] border border-gray-100 p-6">
+                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2"><Upload size={18} className="text-primary-600" /> Submit New Eco Action</h3>
+                {submitMessage && (
+                    <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${submitMessage.startsWith('✅') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                        {submitMessage}
+                    </div>
+                )}
+                <form onSubmit={handleSubmitEcoAction} className="space-y-4">
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                            <input
+                                type="text"
+                                value={submitForm.title}
+                                onChange={(e) => setSubmitForm({ ...submitForm, title: e.target.value })}
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 outline-none"
+                                placeholder="e.g. Planted 5 trees"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                            <select
+                                value={submitForm.category}
+                                onChange={(e) => setSubmitForm({ ...submitForm, category: e.target.value })}
+                                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 outline-none bg-white"
+                            >
+                                {['Transport', 'Home Energy', 'Food & Diet', 'Recycling', 'Planting', 'Other'].map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <textarea
+                            value={submitForm.description}
+                            onChange={(e) => setSubmitForm({ ...submitForm, description: e.target.value })}
+                            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 outline-none resize-none"
+                            rows={3}
+                            placeholder="Describe what you did..."
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Proof Image</label>
+                        <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                                if (e.target.files && e.target.files[0]) {
+                                    setSubmitFile(e.target.files[0]);
+                                }
+                            }}
+                            className="w-full px-4 py-3 rounded-xl border border-gray-200 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-sm file:font-bold file:bg-primary-50 file:text-primary-600 hover:file:bg-primary-100"
+                        />
+                        {submitFile && (
+                            <div className="mt-2 flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+                                <Check className="w-4 h-4 shrink-0" />
+                                <span className="truncate font-medium">{submitFile.name}</span>
+                                <span className="text-xs text-green-500 shrink-0">({(submitFile.size / 1024).toFixed(0)} KB)</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setSubmitFile(null)}
+                                    className="ml-auto text-red-400 hover:text-red-600 text-xs font-bold shrink-0"
+                                >
+                                    Remove
                                 </button>
                             </div>
-                        </div>
-                    ))}
+                        )}
+                    </div>
+                    <button
+                        type="submit"
+                        disabled={submitLoading}
+                        className="bg-primary-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-primary-700 disabled:opacity-70 transition-colors flex items-center gap-2 shadow-lg shadow-primary-200"
+                    >
+                        {submitLoading ? (
+                            <>
+                                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                                Submitting...
+                            </>
+                        ) : (
+                            <>
+                                <Upload size={16} /> Submit
+                            </>
+                        )}
+                    </button>
+                </form>
+            </div>
+
+            {/* Submissions List */}
+            <div className="bg-white rounded-[24px] border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-900">My Submissions</h3>
                 </div>
+                {submissions.length === 0 ? (
+                    <p className="text-gray-400 text-center py-8">No submissions yet.</p>
+                ) : (
+                    <div className="divide-y divide-gray-50">
+                        {submissions.map((sub) => (
+                            <div key={sub.id} className="p-5 flex flex-col md:flex-row md:items-center gap-4 hover:bg-gray-50 transition-colors">
+                                <div className="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center text-primary-600 shrink-0">
+                                    <FileText size={20} />
+                                </div>
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-bold text-gray-900">{sub.title}</h4>
+                                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${sub.status === 'verified' ? 'bg-green-50 text-green-600' : sub.status === 'rejected' ? 'bg-red-50 text-red-500' : 'bg-yellow-50 text-yellow-600'}`}>
+                                            {sub.status === 'verified' ? <Check className="inline w-3 h-3 mr-0.5" /> : <Clock className="inline w-3 h-3 mr-0.5" />}
+                                            {sub.status.charAt(0).toUpperCase() + sub.status.slice(1)}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-0.5">{sub.category} · {new Date(sub.submitted_at).toLocaleDateString()}</p>
+                                    <p className="text-sm text-gray-500 mt-1">{sub.description}</p>
+                                </div>
+                                <div className="text-right">
+                                    {sub.points > 0 && <p className="font-bold text-primary-600">+{sub.points} pts</p>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
 
-    /* ── COMMUNITY ── */
+
+    /* ── MARKETPLACE ── */
+    const MarketplaceTab = () => (
+        <div className="space-y-6 animate-fade-in">
+            <div>
+                <h1 className="text-3xl font-bold font-outfit text-primary-900">Carbon Credit Marketplace</h1>
+                <p className="text-gray-500">Browse and purchase carbon credits from verified projects.</p>
+            </div>
+
+            {purchaseMessage && (
+                <div className={`p-3 rounded-xl text-sm font-medium ${purchaseMessage.startsWith('✅') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                    {purchaseMessage}
+                </div>
+            )}
+
+            {/* Your Balance */}
+            <div className="bg-gradient-to-r from-primary-600 to-primary-800 rounded-[24px] p-6 text-white flex items-center justify-between">
+                <div>
+                    <p className="text-primary-200 text-xs font-bold uppercase tracking-wider mb-1">Your Carbon Credits</p>
+                    <p className="text-3xl font-bold font-outfit">{profile?.carbon_credits?.toFixed(1) || 0}</p>
+                </div>
+                <Award className="w-10 h-10 text-primary-200" />
+            </div>
+
+            {/* Listings */}
+            {marketplace.length === 0 ? (
+                <div className="bg-white rounded-[24px] border border-gray-100 p-12 text-center">
+                    <ShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-bold text-gray-700 mb-2">No listings available</h3>
+                    <p className="text-gray-400">Check back later for new carbon credit listings.</p>
+                </div>
+            ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {marketplace.map((project) => {
+                        const qty = buyQty[project.id] || 1;
+                        const total = qty * project.price_per_credit;
+                        return (
+                            <div key={project.id} className="bg-white rounded-[24px] border border-gray-100 p-6 hover:shadow-lg transition-shadow flex flex-col">
+                                <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center mb-4">
+                                    <Leaf className="w-6 h-6 text-green-600" />
+                                </div>
+                                <h3 className="font-bold text-gray-900 text-lg mb-2">{project.organization_name}</h3>
+                                <p className="text-sm text-gray-500 mb-4 line-clamp-2 flex-1">{project.description}</p>
+                                <div className="flex items-center justify-between mb-3 text-sm">
+                                    <span className="text-gray-400">Available: <strong className="text-gray-700">{project.credits_available}</strong></span>
+                                    <span className="text-primary-600 font-bold">₹{project.price_per_credit}/credit</span>
+                                </div>
+
+                                {/* Quantity selector */}
+                                <div className="flex items-center gap-2 mb-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setBuyQty({ ...buyQty, [project.id]: Math.max(1, qty - 1) })}
+                                        className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors flex items-center justify-center"
+                                    >−</button>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max={project.credits_available}
+                                        value={qty}
+                                        onChange={(e) => setBuyQty({ ...buyQty, [project.id]: Math.max(1, Math.min(project.credits_available, parseInt(e.target.value) || 1)) })}
+                                        className="w-14 text-center py-1 border border-gray-200 rounded-lg text-sm font-bold"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setBuyQty({ ...buyQty, [project.id]: Math.min(project.credits_available, qty + 1) })}
+                                        className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-colors flex items-center justify-center"
+                                    >+</button>
+                                    <span className="text-xs text-gray-400 ml-auto">Total: <strong className="text-gray-700">₹{total.toFixed(2)}</strong></span>
+                                </div>
+
+                                <button
+                                    onClick={() => handlePurchase(project.id, qty)}
+                                    disabled={purchaseLoading === project.id}
+                                    className="w-full bg-primary-600 text-white py-2.5 rounded-xl font-bold hover:bg-primary-700 disabled:opacity-70 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    {purchaseLoading === project.id ? (
+                                        <>
+                                            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                                            Processing...
+                                        </>
+                                    ) : (
+                                        <>Buy {qty} Credit{qty > 1 ? 's' : ''} — ₹{total.toFixed(2)}</>
+                                    )}
+                                </button>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Transaction History */}
+            <div className="bg-white rounded-[24px] border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-primary-600" />
+                        Transaction History
+                    </h3>
+                </div>
+                {purchaseHistory.length === 0 ? (
+                    <p className="text-gray-400 text-center py-8">No transactions yet.</p>
+                ) : (
+                    <div className="divide-y divide-gray-50">
+                        {purchaseHistory.map((tx) => (
+                            <div key={tx.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center">
+                                        <ShoppingBag className="w-5 h-5 text-green-600" />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-gray-900 text-sm">{tx.organization_name}</p>
+                                        <p className="text-xs text-gray-400">{new Date(tx.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <p className="font-bold text-primary-600 text-sm">+{tx.credits_bought} credits</p>
+                                    <p className="text-xs text-gray-400">₹{tx.total_price?.toFixed(2)} @ ₹{tx.price_per_credit}/credit</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+
+    /* ── COMMUNITY (Leaderboard) ── */
     const Community = () => (
         <div className="space-y-6 animate-fade-in">
             <div>
-                <h1 className="text-3xl font-bold font-outfit text-primary-900">Community Hub</h1>
-                <p className="text-gray-500">Connect with 250k+ eco-warriors around the world.</p>
+                <h1 className="text-3xl font-bold font-outfit text-primary-900">Community Leaderboard</h1>
+                <p className="text-gray-500">See how you rank among eco-warriors.</p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-4">
-                {[{ v: '250k+', l: 'Members' }, { v: '15k', l: 'Trees Planted' }, { v: '820 ton', l: 'CO₂ Saved' }].map((s, i) => (
+                {[
+                    { v: leaderboard.length, l: 'Total Members' },
+                    { v: profile?.carbon_credits?.toFixed(1) || 0, l: 'Your Credits' },
+                    { v: submissions.filter(s => s.status === 'verified').length, l: 'Your Verified Actions' },
+                ].map((s, i) => (
                     <div key={i} className="bg-primary-50 rounded-[20px] p-5 text-center">
                         <p className="text-3xl font-bold text-primary-700 font-outfit">{s.v}</p>
                         <p className="text-sm text-primary-500 font-medium">{s.l}</p>
@@ -527,30 +1218,34 @@ const Dashboard = () => {
                 ))}
             </div>
 
-            <div className="space-y-4">
-                {communityPosts.map((post, i) => (
-                    <div key={i} className="bg-white rounded-[20px] border border-gray-100 p-5 hover:shadow-md transition-shadow">
-                        <div className="flex items-start gap-3">
-                            <img src={post.avatar} alt={post.name} className="w-10 h-10 rounded-full object-cover" />
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <h4 className="font-bold text-gray-900 text-sm">{post.name}</h4>
-                                    <span className="text-[10px] font-bold px-2 py-0.5 bg-green-50 text-green-600 rounded-full">{post.badge}</span>
-                                    <span className="text-xs text-gray-400 ml-auto">{post.time}</span>
+            <div className="bg-white rounded-[24px] border border-gray-100 overflow-hidden">
+                <div className="p-6 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-900">Rankings by Carbon Credits</h3>
+                </div>
+                {leaderboard.length === 0 ? (
+                    <p className="text-gray-400 text-center py-8">No data yet.</p>
+                ) : (
+                    <div className="divide-y divide-gray-50">
+                        {leaderboard.map((entry, i) => (
+                            <div key={i} className="p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${i < 3 ? 'bg-amber-50 text-amber-600 border-2 border-amber-200' : 'bg-gray-100 text-gray-600'}`}>
+                                    {entry.rank || i + 1}
                                 </div>
-                                <p className="text-sm text-gray-600 leading-relaxed">{post.text}</p>
-                                <div className="flex items-center gap-4 mt-3">
-                                    <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-500 transition-colors font-medium">
-                                        ❤️ {post.likes}
-                                    </button>
-                                    <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-primary-600 transition-colors font-medium">
-                                        <MessageSquare className="w-3.5 h-3.5" /> Reply
-                                    </button>
+                                <div className="flex-1">
+                                    <h4 className={`font-bold text-sm ${entry.username === username ? 'text-primary-600' : 'text-gray-900'}`}>
+                                        {entry.username}
+                                        {entry.username === username && <span className="ml-2 text-xs bg-primary-100 text-primary-600 px-2 py-0.5 rounded-full">You</span>}
+                                    </h4>
                                 </div>
+                                <div className="text-right">
+                                    <p className="font-bold text-gray-900">{entry.carbon_credits?.toFixed(1) || 0}</p>
+                                    <p className="text-[10px] text-gray-400">credits</p>
+                                </div>
+                                {i < 3 && <Star className="w-4 h-4 text-amber-400" />}
                             </div>
-                        </div>
+                        ))}
                     </div>
-                ))}
+                )}
             </div>
         </div>
     );
@@ -560,13 +1255,13 @@ const Dashboard = () => {
         <div className="max-w-2xl space-y-6 animate-fade-in">
             <div>
                 <h1 className="text-3xl font-bold font-outfit text-primary-900">Settings</h1>
-                <p className="text-gray-500">Manage your account preferences and notifications.</p>
+                <p className="text-gray-500">Manage your account preferences.</p>
             </div>
 
             {[
-                { section: 'Account', items: ['Change Password', 'Two-Factor Authentication', 'Connected Accounts'] },
-                { section: 'Notifications', items: ['Email Notifications', 'Push Notifications', 'Weekly Carbon Report'] },
-                { section: 'Privacy', items: ['Profile Visibility', 'Data Sharing Preferences', 'Download My Data'] },
+                { section: 'Account', items: ['Change Password', 'Connected Accounts'] },
+                { section: 'Notifications', items: ['Email Notifications', 'Weekly Carbon Report'] },
+                { section: 'Privacy', items: ['Profile Visibility', 'Download My Data'] },
             ].map(({ section, items }) => (
                 <div key={section} className="bg-white rounded-[24px] border border-gray-100 overflow-hidden">
                     <div className="px-6 py-4 border-b border-gray-100">
@@ -593,13 +1288,14 @@ const Dashboard = () => {
 
     const renderContent = () => {
         switch (activeTab) {
-            case 'Overview': return <Overview />;
-            case 'Carbon': return <CarbonTracker />;
-            case 'Profile': return <Profile />;
-            case 'My Orders': return <MyOrders />;
-            case 'Community': return <Community />;
-            case 'Settings': return <SettingsPanel />;
-            default: return <Overview />;
+            case 'Overview': return Overview();
+            case 'Carbon': return CarbonTracker();
+            case 'Profile': return Profile();
+            case 'Eco Actions': return EcoActions();
+            case 'Marketplace': return MarketplaceTab();
+            case 'Community': return Community();
+            case 'Settings': return SettingsPanel();
+            default: return Overview();
         }
     };
 
@@ -628,10 +1324,12 @@ const Dashboard = () => {
 
                 <div className="p-4 border-t border-gray-200">
                     <div className="flex items-center gap-3 px-4 py-3 mb-2 cursor-pointer hover:bg-gray-50 rounded-xl transition-colors" onClick={() => setActiveTab('Profile')}>
-                        <img src="https://i.pravatar.cc/150?u=user-me" alt="User" className="w-10 h-10 rounded-full bg-gray-200 object-cover" />
+                        <div className="w-10 h-10 rounded-full bg-primary-200 flex items-center justify-center">
+                            <User className="w-5 h-5 text-primary-600" />
+                        </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-gray-900 truncate">Alex Green</p>
-                            <p className="text-xs text-gray-500 truncate">alex@greenify.eco</p>
+                            <p className="text-sm font-bold text-gray-900 truncate">{profile?.username || username}</p>
+                            <p className="text-xs text-gray-500 truncate">{profile?.email || ''}</p>
                         </div>
                     </div>
                     <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors text-sm font-medium">
@@ -650,9 +1348,10 @@ const Dashboard = () => {
                     <div className="flex items-center gap-3">
                         <button className="p-2 text-gray-500 hover:bg-gray-100 rounded-full relative">
                             <Bell size={20} />
-                            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
                         </button>
-                        <img src="https://i.pravatar.cc/150?u=user-me" alt="User" className="w-8 h-8 rounded-full border border-gray-200 object-cover" onClick={() => setActiveTab('Profile')} />
+                        <div className="w-8 h-8 rounded-full bg-primary-200 flex items-center justify-center" onClick={() => setActiveTab('Profile')}>
+                            <User className="w-4 h-4 text-primary-600" />
+                        </div>
                     </div>
                 </header>
 

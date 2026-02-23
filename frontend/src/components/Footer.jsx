@@ -16,7 +16,6 @@ const Footer = () => {
 
     const quickLinks = [
         { name: 'Home', action: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
-        { name: 'Shop Products', action: () => scrollTo('products') },
         { name: 'Our Impact', action: () => scrollTo('impact') },
         { name: 'About Us', action: () => scrollTo('about') },
     ];

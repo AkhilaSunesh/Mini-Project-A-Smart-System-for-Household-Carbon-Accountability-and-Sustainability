@@ -35,13 +35,7 @@ const Hero = () => {
                         </p>
 
                         <div className="animate-fade-in-up opacity-0 flex flex-wrap gap-5" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
-                            <button
-                                onClick={() => scrollTo('products')}
-                                className="bg-primary-600 hover:bg-primary-700 text-white px-8 py-4 rounded-full font-bold transition-all shadow-xl shadow-primary-200 flex items-center gap-2 group hover:scale-105 cursor-pointer"
-                            >
-                                Shop Our Collection
-                                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                            </button>
+
 
                             <button
                                 onClick={() => scrollTo('how-it-works')}
