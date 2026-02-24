@@ -70,8 +70,8 @@ The application is built using a decoupled, layered architecture to ensure scala
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/your-username/ecological.git](https://github.com/your-username/ecological.git)
-cd ecological
+git clone https://github.com/AkhilaSunesh/Mini-Project-A-Smart-System-for-Household-Carbon-Accountability-and-Sustainability
+cd Mini-Project-A-Smart-System-for-Household-Carbon-Accountability-and-Sustainability
 
 ```
 
