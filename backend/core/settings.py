@@ -91,7 +91,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'carbon_accountability',   
         'USER': 'postgres',                
-        'PASSWORD': 'root',
+        'PASSWORD': 'akhila',
         'HOST': 'localhost',
         'PORT': '5432',
     }

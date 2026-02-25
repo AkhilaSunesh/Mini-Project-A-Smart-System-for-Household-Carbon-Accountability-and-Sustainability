@@ -4,6 +4,7 @@ import Features from '../components/Features';
 import HowItWorks from '../components/HowItWorks';
 import Impact from '../components/Impact';
 import Testimonials from '../components/Testimonials';
+import Blog from '../components/Blog';
 import Newsletter from '../components/Newsletter';
 
 const Home = () => {
@@ -14,6 +15,7 @@ const Home = () => {
             <HowItWorks />
             <Impact />
             <Testimonials />
+            <Blog />
             <Newsletter />
         </main>
     );

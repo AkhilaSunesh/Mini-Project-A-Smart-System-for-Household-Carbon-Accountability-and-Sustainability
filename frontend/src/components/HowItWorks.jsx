@@ -1,27 +1,27 @@
 import React from 'react';
-import { MousePointer2, ClipboardCheck, Truck, Recycle } from 'lucide-react';
+import { UserPlus, Activity, Upload, Trophy } from 'lucide-react';
 
 const HowItWorks = () => {
     const steps = [
         {
-            icon: <MousePointer2 className="w-8 h-8 text-primary-600" />,
-            title: 'Choose Product',
-            description: 'Select from our wide range of eco-friendly, plastic-free products.'
+            icon: <UserPlus className="w-8 h-8 text-primary-600" />,
+            title: 'Create Your Account',
+            description: 'Sign up and set up your household profile to start tracking your carbon footprint.'
         },
         {
-            icon: <ClipboardCheck className="w-8 h-8 text-primary-600" />,
-            title: 'Place Order',
-            description: 'Quick and secure checkout process with multiple payment options.'
+            icon: <Activity className="w-8 h-8 text-primary-600" />,
+            title: 'Log Your Activities',
+            description: 'Record daily activities like transport, energy use, and waste — we auto-calculate your CO₂ emissions.'
         },
         {
-            icon: <Truck className="w-8 h-8 text-primary-600" />,
-            title: 'Fast Delivery',
-            description: 'Low-carbon shipping delivers your items right to your doorstep.'
+            icon: <Upload className="w-8 h-8 text-primary-600" />,
+            title: 'Upload Proof of Action',
+            description: 'Submit photo proof of eco-friendly actions like recycling or using public transit for verification.'
         },
         {
-            icon: <Recycle className="w-8 h-8 text-primary-600" />,
-            title: 'Make an Impact',
-            description: 'Feel good knowing your purchase supports reforestation projects.'
+            icon: <Trophy className="w-8 h-8 text-primary-600" />,
+            title: 'Earn Rewards & Credits',
+            description: 'Get reward points, climb the community leaderboard, and earn carbon credits for your sustainable efforts.'
         }
     ];
 
@@ -30,7 +30,7 @@ const HowItWorks = () => {
             <div className="container mx-auto px-6">
                 <div className="text-center max-w-2xl mx-auto mb-16">
                     <h2 className="text-4xl font-bold font-outfit text-primary-900 mb-4">How It Works</h2>
-                    <p className="text-gray-600">Join the movement in four simple steps.</p>
+                    <p className="text-gray-600">Start your sustainability journey in four simple steps — track, reduce, earn, and sustain.</p>
                 </div>
 
                 <div className="relative">

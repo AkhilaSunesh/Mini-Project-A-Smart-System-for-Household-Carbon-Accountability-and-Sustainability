@@ -9,12 +9,13 @@ import Footer from './components/Footer';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import BlogPage from './pages/BlogPage';
+import BlogArticle from './pages/BlogArticle';
 
 /* Layout Wrapper to conditionally show Navbar/Footer */
 const AppLayout = ({ children }) => {
   const location = useLocation();
   // Don't show Navbar/Footer on Dashboard or Login pages for a cleaner app-like feel
-  // Or maybe keep Navbar on Login? Usually Dashboard has its own layout.
   const isDashboard = location.pathname.startsWith('/dashboard');
   const isLogin = location.pathname === '/login';
 
@@ -37,6 +38,8 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/blog" element={<BlogPage />} />
+          <Route path="/blog/:id" element={<BlogArticle />} />
         </Routes>
       </AppLayout>
     </Router>

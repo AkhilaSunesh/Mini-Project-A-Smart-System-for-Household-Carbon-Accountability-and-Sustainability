@@ -29,6 +29,7 @@ const Navbar = () => {
         { name: 'Home', scrollId: null, path: '/' },
         { name: 'About', scrollId: 'about' },
         { name: 'Impact', scrollId: 'impact' },
+        { name: 'Blog', scrollId: null, path: '/blog' },
         { name: 'Contact', scrollId: 'contact' },
     ];
 
