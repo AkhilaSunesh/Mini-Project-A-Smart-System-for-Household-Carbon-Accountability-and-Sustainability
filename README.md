@@ -105,7 +105,6 @@ npm start
 ## 🛣️ Future Scope
 
 * **AI Integration:** Predictive modeling for personal carbon trends.
-* **Mobile Application:** Native Android/iOS versions using React Native.
 * **IoT Integration:** Smart meter connectivity for automated energy tracking.
 * **Government Collaboration:** Linking verified credits to official environmental schemes.
 
