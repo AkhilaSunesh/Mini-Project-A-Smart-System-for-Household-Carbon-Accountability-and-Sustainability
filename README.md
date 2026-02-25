@@ -70,8 +70,8 @@ The application is built using a decoupled, layered architecture to ensure scala
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/your-username/ecological.git](https://github.com/your-username/ecological.git)
-cd ecological
+git clone https://github.com/AkhilaSunesh/Mini-Project-A-Smart-System-for-Household-Carbon-Accountability-and-Sustainability
+cd Mini-Project-A-Smart-System-for-Household-Carbon-Accountability-and-Sustainability
 
 ```
 
@@ -86,6 +86,7 @@ source venv/bin/activate  # Mac/Linux
 venv\Scripts\activate     # Windows
 
 pip install -r requirements.txt
+python manage.py makemigrations
 python manage.py migrate
 python manage.py runserver
 
@@ -96,7 +97,7 @@ python manage.py runserver
 ```bash
 cd frontend
 npm install
-npm start
+npm run dev
 
 ```
 
@@ -105,7 +106,6 @@ npm start
 ## 🛣️ Future Scope
 
 * **AI Integration:** Predictive modeling for personal carbon trends.
-* **Mobile Application:** Native Android/iOS versions using React Native.
 * **IoT Integration:** Smart meter connectivity for automated energy tracking.
 * **Government Collaboration:** Linking verified credits to official environmental schemes.
 
