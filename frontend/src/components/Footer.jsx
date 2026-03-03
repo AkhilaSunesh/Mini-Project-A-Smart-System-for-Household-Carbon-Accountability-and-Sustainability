@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Leaf, Twitter, Instagram, Facebook, Mail, MapPin, Phone } from 'lucide-react';
+import { Twitter, Instagram, Facebook, Mail, MapPin, Phone } from 'lucide-react';
+import LogoIcon from './LogoIcon';
 
 const scrollTo = (id) => {
     const el = document.getElementById(id);
@@ -43,7 +44,7 @@ const Footer = () => {
                     <div className="space-y-6">
                         <div className="flex items-center gap-2">
                             <div className="bg-primary-600 p-1.5 rounded-lg">
-                                <Leaf className="text-white w-6 h-6" />
+                                <LogoIcon className="w-6 h-6 text-white" />
                             </div>
                             <span className="text-2xl font-bold font-outfit text-primary-900">Ecological</span>
                         </div>

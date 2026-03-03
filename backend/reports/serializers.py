@@ -20,4 +20,4 @@ class DailyCarbonReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyCarbonReport
         fields = '__all__'
-        read_only_fields = ['id', 'username', 'user', 'total_co2']
+        read_only_fields = ['id', 'username', 'user', 'transport_co2', 'energy_co2', 'water_co2', 'waste_co2', 'total_co2']

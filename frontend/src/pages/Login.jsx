@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Leaf, Mail, Lock, ArrowRight, User, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, User, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import LogoIcon from '../components/LogoIcon';
 import { Link, useNavigate } from 'react-router-dom';
 import { loginUser, registerUser } from '../api';
 
@@ -98,7 +99,7 @@ const Login = () => {
                     <div className="flex items-center gap-2 mb-8">
                         <Link to="/" className="flex items-center gap-2 group">
                             <div className="bg-primary-600 p-1.5 rounded-lg group-hover:scale-110 transition-transform">
-                                <Leaf className="text-white w-6 h-6" />
+                                <LogoIcon className="w-6 h-6 text-white" />
                             </div>
                             <span className="text-2xl font-bold font-outfit text-primary-900">Ecological</span>
                         </Link>

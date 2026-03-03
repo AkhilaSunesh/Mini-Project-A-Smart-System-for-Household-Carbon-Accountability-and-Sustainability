@@ -6,8 +6,8 @@ import { blogPosts, categories } from '../data/blogPosts';
 const Blog = () => {
     const [activeCategory, setActiveCategory] = useState('All');
 
-    // Show only first 5 on homepage
-    const homePosts = blogPosts.slice(0, 5);
+    // Show only first 4 on homepage
+    const homePosts = blogPosts.slice(0, 4);
 
     const filteredPosts =
         activeCategory === 'All'
@@ -51,8 +51,8 @@ const Blog = () => {
                             key={cat}
                             onClick={() => setActiveCategory(cat)}
                             className={`px-5 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 cursor-pointer ${activeCategory === cat
-                                    ? 'bg-primary-600 text-white shadow-lg shadow-primary-200 scale-105'
-                                    : 'bg-white text-gray-600 border border-gray-200 hover:border-primary-300 hover:text-primary-700 hover:shadow-md'
+                                ? 'bg-primary-600 text-white shadow-lg shadow-primary-200 scale-105'
+                                : 'bg-white text-gray-600 border border-gray-200 hover:border-primary-300 hover:text-primary-700 hover:shadow-md'
                                 }`}
                         >
                             {cat}

@@ -1,0 +1,41 @@
+# Node modules
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Virtual environments
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+
+# Environment variables
+.env
+.env.*
+backend/.env
+frontend/.env
+
+# Python cache
+__pycache__/
+*.pyc
+**/*.pyc
+**/*/__pycache__/
+
+# Distribution / Build
+dist/
+build/
+frontend/dist/
+
+# Local database
+db.sqlite3
+backend/db.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo

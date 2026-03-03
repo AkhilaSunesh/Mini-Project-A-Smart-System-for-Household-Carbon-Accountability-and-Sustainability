@@ -31,30 +31,71 @@ import {
     MessageSquare,
     Upload,
     FileText,
+    Trash2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getProfile, getLeaderboard, getMarketplaceProjects, purchaseCredits, getPurchaseHistory, getMySubmissions, submitEcoAction, getCarbonHistory, submitCarbonReport } from '../api';
+import LogoIcon from '../components/LogoIcon';
+import { getProfile, getLeaderboard, getMarketplaceProjects, purchaseCredits, getPurchaseHistory, getMySubmissions, submitEcoAction, getCarbonHistory, submitCarbonReport, getCarbonStats } from '../api';
 
-/* ─── Tiny reusable bar chart (CSS + SVG, no library needed) ─── */
-const WeeklyBarChart = ({ data, label, color }) => {
-    const max = Math.max(...data.map(d => d.value));
+/* ─── Stacked Bar Chart (CSS + SVG) ─── */
+const StackedBarChart = ({ data, categories, height = 180 }) => {
+    // Find max total to scale the chart
+    const maxTotal = Math.max(...data.map(d => d.total), 30); // Use 30 as a minimum ceiling for better scale
+    const ceiling = Math.ceil(maxTotal / 15) * 15; // Round to nearest 15 for grid lines
+
+    const yAxisLabels = [0, ceiling * 0.25, ceiling * 0.5, ceiling * 0.75, ceiling].reverse();
+
     return (
-        <div>
-            <div className="flex items-end gap-2 h-28">
-                {data.map((d, i) => {
-                    const pct = max > 0 ? (d.value / max) * 100 : 0;
-                    return (
-                        <div key={i} className="flex flex-col items-center flex-1 gap-1">
-                            <span className="text-[10px] text-gray-400 font-medium">{d.value}</span>
-                            <div className="w-full rounded-t-lg transition-all duration-700 relative group" style={{ height: `${Math.max(pct, 3)}%`, backgroundColor: color }}>
-                                <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 whitespace-nowrap transition-opacity">
-                                    {d.value} {label}
-                                </div>
-                            </div>
-                            <span className="text-[10px] text-gray-400">{d.day}</span>
+        <div className="w-full">
+            <div className="flex gap-4">
+                {/* Y-Axis */}
+                <div className="flex flex-col justify-between text-[10px] text-gray-400 font-bold pb-6 pt-2" style={{ height: `${height}px` }}>
+                    {yAxisLabels.map(val => <span key={val}>{Math.round(val)}kg</span>)}
+                </div>
+
+                {/* Bars Container */}
+                <div className="flex-1 relative overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-gray-200">
+                    <div className="h-full relative" style={{ minWidth: data.length > 7 ? `${data.length * 60}px` : '100%' }}>
+                        {/* Horizontal Grid Lines */}
+                        <div className="absolute inset-x-0 inset-y-0 flex flex-col justify-between py-2 pointer-events-none">
+                            {[1, 2, 3, 4, 5].map(i => (
+                                <div key={i} className="w-full border-t border-gray-100 border-dashed"></div>
+                            ))}
                         </div>
-                    );
-                })}
+
+                        {/* Bars */}
+                        <div className="relative flex items-end justify-between gap-4 h-full px-2" style={{ height: `${height}px` }}>
+                            {data.map((day, idx) => (
+                                <div key={idx} className="flex-1 flex flex-col items-center group relative z-10">
+                                    <div className="w-full max-w-[40px] flex flex-col-reverse rounded-lg overflow-hidden transition-all duration-500 hover:brightness-95" style={{ height: `${(day.total / ceiling) * 100}%` }}>
+                                        {categories.map((cat, i) => {
+                                            const h = (day[cat.key] / Math.max(day.total, 0.0001)) * 100;
+                                            return h > 0 ? (
+                                                <div
+                                                    key={i}
+                                                    style={{ height: `${h}%`, backgroundColor: cat.color }}
+                                                    className="w-full"
+                                                    title={`${cat.label}: ${day[cat.key].toFixed(1)}kg`}
+                                                />
+                                            ) : null;
+                                        })}
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 font-bold mt-3 whitespace-nowrap">{day.day}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Legend */}
+            <div className="flex justify-center flex-wrap gap-6 mt-6">
+                {categories.map((cat, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                        <div className="w-3.5 h-3.5 rounded-sm" style={{ backgroundColor: cat.color }}></div>
+                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{cat.label}</span>
+                    </div>
+                ))}
             </div>
         </div>
     );
@@ -122,6 +163,9 @@ const Dashboard = () => {
     const [carbonHistory, setCarbonHistory] = useState([]);
     const [purchaseHistory, setPurchaseHistory] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [chartPeriod, setChartPeriod] = useState('Daily');
+    const [statsData, setStatsData] = useState([]);
+    const [statsLoading, setStatsLoading] = useState(false);
 
     // Submit eco-action form state
     const [submitForm, setSubmitForm] = useState({ title: '', category: 'Transport', description: '' });
@@ -131,6 +175,7 @@ const Dashboard = () => {
 
     // Carbon Report Form State
     const [carbonForm, setCarbonForm] = useState({
+        date: new Date().toLocaleDateString('en-CA'), // Returns YYYY-MM-DD in local time
         transport_distance: 0,
         transport_vehicle_type: 'car_petrol_small',
         electricity_units: 0,
@@ -142,6 +187,22 @@ const Dashboard = () => {
     });
     const [carbonLoading, setCarbonLoading] = useState(false);
     const [carbonMessage, setCarbonMessage] = useState('');
+    const [editingId, setEditingId] = useState(null);
+
+    const resetCarbonForm = () => {
+        setCarbonForm({
+            date: new Date().toLocaleDateString('en-CA'),
+            transport_distance: 0,
+            transport_vehicle_type: 'car_petrol_small',
+            electricity_units: 0,
+            lpg_used: 0,
+            water_used: 0,
+            water_source: 'municipal',
+            waste_weight: 0,
+            waste_type_method: 'organic_landfill'
+        });
+        setEditingId(null);
+    };
 
     // Purchase state
     const [purchaseLoading, setPurchaseLoading] = useState(null);
@@ -205,8 +266,8 @@ const Dashboard = () => {
         fetchAqi();
     }, []);
 
-    const fetchAllData = async () => {
-        setLoading(true);
+    const fetchAllData = async (silent = false) => {
+        if (!silent) setLoading(true);
         try {
             const [profileRes, leaderboardRes, marketplaceRes, submissionsRes, carbonRes, purchaseRes] = await Promise.allSettled([
                 getProfile(),
@@ -222,12 +283,32 @@ const Dashboard = () => {
             if (submissionsRes.status === 'fulfilled') setSubmissions(submissionsRes.value.data);
             if (carbonRes.status === 'fulfilled') setCarbonHistory(carbonRes.value.data);
             if (purchaseRes.status === 'fulfilled') setPurchaseHistory(purchaseRes.value.data);
+
+            // Also fetch stats for the current period
+            fetchStats(chartPeriod);
         } catch {
             // individual errors handled by interceptor (401 → redirect)
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
+
+    const fetchStats = async (period) => {
+        setStatsLoading(true);
+        try {
+            const res = await getCarbonStats(period);
+            setStatsData(res.data);
+        } catch {
+            // silent fail
+        } finally {
+            setStatsLoading(false);
+        }
+    };
+
+    // Refetch stats when period changes
+    useEffect(() => {
+        if (!loading) fetchStats(chartPeriod);
+    }, [chartPeriod]);
 
     const handleLogout = () => {
         localStorage.removeItem('access_token');
@@ -254,9 +335,9 @@ const Dashboard = () => {
             setSubmitMessage('✅ Eco-action submitted successfully!');
             setSubmitForm({ title: '', category: 'Transport', description: '' });
             setSubmitFile(null);
-            // Refresh submissions
-            const res = await getMySubmissions();
-            setSubmissions(res.data);
+            // Refresh data silently
+            fetchAllData(true);
+            setTimeout(() => setSubmitMessage(''), 5000);
         } catch {
             setSubmitMessage('❌ Failed to submit. Please try again.');
         } finally {
@@ -270,8 +351,9 @@ const Dashboard = () => {
         try {
             const res = await purchaseCredits(projectId, qty || 1);
             setPurchaseMessage(`✅ ${res.data.message} — ${res.data.credits_added} credits for ₹${res.data.total_price?.toFixed(2)}`);
-            // Refresh data
-            fetchAllData();
+            // Refresh data silently
+            fetchAllData(true);
+            setTimeout(() => setPurchaseMessage(''), 5000);
         } catch (err) {
             setPurchaseMessage(`❌ ${err.response?.data?.error || 'Purchase failed'}`);
         } finally {
@@ -281,28 +363,67 @@ const Dashboard = () => {
 
     const handleCarbonSubmit = async (e) => {
         e.preventDefault();
+
+        // Check if date already exists (only for new entries)
+        if (!editingId) {
+            const dateExists = carbonHistory.some(h => h.date === carbonForm.date);
+            if (dateExists) {
+                setCarbonMessage('❌ A report for this date already exists. Please edit the existing entry.');
+                return;
+            }
+        }
+
         setCarbonLoading(true);
         setCarbonMessage('');
         try {
-            await submitCarbonReport(carbonForm);
-            setCarbonMessage('✅ Carbon report submitted successfully!');
+            if (editingId) {
+                await updateCarbonReport(editingId, carbonForm);
+                setCarbonMessage('✅ Carbon report updated successfully!');
+            } else {
+                await submitCarbonReport(carbonForm);
+                setCarbonMessage('✅ Carbon report submitted successfully!');
+            }
             // Reset form
-            setCarbonForm({
-                transport_distance: 0,
-                transport_vehicle_type: 'car_petrol_small',
-                electricity_units: 0,
-                lpg_used: 0,
-                water_used: 0,
-                water_source: 'municipal',
-                waste_weight: 0,
-                waste_type_method: 'organic_landfill'
-            });
-            // Refresh data (profile and carbon history)
-            fetchAllData();
-        } catch {
-            setCarbonMessage('❌ Failed to submit carbon report.');
+            resetCarbonForm();
+            // Refresh data silently
+            fetchAllData(true);
+            setTimeout(() => setCarbonMessage(''), 5000);
+        } catch (err) {
+            setCarbonMessage(`❌ ${err.response?.data?.error || 'Failed to submit carbon report.'}`);
         } finally {
             setCarbonLoading(false);
+        }
+    };
+
+    const handleEditLog = (h) => {
+        setCarbonForm({
+            date: h.date,
+            transport_distance: h.transport_distance,
+            transport_vehicle_type: h.transport_vehicle_type,
+            electricity_units: h.electricity_units,
+            lpg_used: h.lpg_used,
+            water_used: h.water_used,
+            water_source: h.water_source,
+            waste_weight: h.waste_weight,
+            waste_type_method: h.waste_type_method
+        });
+        setEditingId(h.id);
+        // Scroll to form
+        const formEl = document.getElementById('carbon-form');
+        if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    const handleDeleteLog = async (id) => {
+        if (!window.confirm('🗑️ Are you sure you want to delete this log? This action cannot be undone.')) return;
+        try {
+            await deleteCarbonReport(id);
+            setCarbonMessage('✅ Log deleted successfully.');
+            // Refresh all data to sync charts and totals
+            await fetchAllData(true);
+            setTimeout(() => setCarbonMessage(''), 5000);
+        } catch (err) {
+            console.error('Delete failed:', err);
+            setCarbonMessage(`❌ Failed to delete log: ${err.response?.data?.error || 'Server error'}`);
         }
     };
 
@@ -319,22 +440,11 @@ const Dashboard = () => {
     // Calculate dynamic categories from history
     const getCategoryTotal = (history) => {
         const totals = { transport: 0, energy: 0, water: 0, waste: 0 };
-        // Constants from backend for calculation
-        const TRANSPORT_FACTORS = {
-            'car_petrol_large': 0.1730, 'car_petrol_small': 0.1264,
-            'bike_motorcycle': 0.0248, 'bike_scooter': 0.0421,
-            'bus_public': 0.0730, 'train_rail': 0.0170,
-        };
-        const GRID_FACTOR = 0.82;
-        const LPG_FACTOR = 3.13;
-        const WATER_FACTORS = { 'municipal': 1.69, 'borewell': 0.67 };
-        const WASTE_FACTORS = { 'organic_landfill': 1.29, 'organic_composted': 0.32, 'paper': 2.50 };
-
         history.forEach(h => {
-            if (h.transport_vehicle_type) totals.transport += h.transport_distance * (TRANSPORT_FACTORS[h.transport_vehicle_type] || 0);
-            totals.energy += (h.electricity_units * GRID_FACTOR) + (h.lpg_used * LPG_FACTOR);
-            if (h.water_source) totals.water += (h.water_used / 1000.0) * (WATER_FACTORS[h.water_source] || 0);
-            if (h.waste_type_method) totals.waste += h.waste_weight * (WASTE_FACTORS[h.waste_type_method] || 0);
+            totals.transport += h.transport_co2 || 0;
+            totals.energy += h.energy_co2 || 0;
+            totals.water += h.water_co2 || 0;
+            totals.waste += h.waste_co2 || 0;
         });
         return totals;
     };
@@ -348,29 +458,14 @@ const Dashboard = () => {
     ];
     const totalCarbon = carbonCategories.reduce((s, c) => s + c.value, 0);
 
-    // Dynamic Weekly Stats
-    const weeklyEmissions = [...carbonHistory].reverse().slice(-7).map(h => ({
-        day: new Date(h.date).toLocaleDateString('en-US', { weekday: 'short' }),
-        value: h.total_co2
-    }));
-    while (weeklyEmissions.length < 7) weeklyEmissions.unshift({ day: '-', value: 0 });
-
-    const weeklyProduction = [
-        { day: 'Mon', value: 0 },
-        { day: 'Tue', value: 0 },
-        { day: 'Wed', value: 0 },
-        { day: 'Thu', value: 0 },
-        { day: 'Fri', value: 0 },
-        { day: 'Sat', value: 0 },
-        { day: 'Sun', value: 0 },
+    // Dynamic Trends Logic
+    const trendsData = statsData;
+    const trendCategories = [
+        { key: 'transport', label: 'Transport', color: '#6366f1' },
+        { key: 'energy', label: 'Energy', color: '#eab308' },
+        { key: 'waste', label: 'Goods', color: '#10b981' }
     ];
-    // Fill weekly production from verified submissions
-    submissions.filter(s => s.status === 'verified').forEach(s => {
-        const d = new Date(s.reviewed_at);
-        const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-        const dayObj = weeklyProduction.find(wp => wp.day === dayName);
-        if (dayObj) dayObj.value += (s.points * 0.5);
-    });
+
 
     const summaryStats = [
         {
@@ -471,33 +566,26 @@ const Dashboard = () => {
             <div className="grid lg:grid-cols-3 gap-6">
                 {/* LEFT — main content (2/3) */}
                 <div className="lg:col-span-2 space-y-6">
-                    {/* Weekly Carbon Charts */}
-                    <div className="grid md:grid-cols-2 gap-6">
-                        <div className="bg-white rounded-[24px] border border-gray-100 p-6">
-                            <div className="flex justify-between items-center mb-4">
-                                <div>
-                                    <h3 className="text-lg font-bold font-outfit text-primary-900">Weekly Emissions</h3>
-                                    <p className="text-sm text-gray-400">kg CO₂ emitted per day</p>
-                                </div>
-                                <div className="flex items-center gap-1 bg-red-50 text-red-500 px-3 py-1 rounded-full text-xs font-bold">
-                                    <TrendingDown className="w-3.5 h-3.5" /> 8%
-                                </div>
+                    {/* Emission Trends Stacked Chart */}
+                    <div className="bg-white rounded-[32px] border border-gray-100 p-8">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                            <div>
+                                <h3 className="text-2xl font-bold font-outfit text-gray-900">Emission Trends</h3>
+                                <p className="text-sm text-gray-400 font-medium tracking-wide">Breakdown by category (kg CO₂)</p>
                             </div>
-                            <WeeklyBarChart data={weeklyEmissions} label="kg CO₂" color="#f87171" />
-                        </div>
-
-                        <div className="bg-white rounded-[24px] border border-gray-100 p-6">
-                            <div className="flex justify-between items-center mb-4">
-                                <div>
-                                    <h3 className="text-lg font-bold font-outfit text-primary-900">Green Production</h3>
-                                    <p className="text-sm text-gray-400">kg CO₂ offset per day</p>
-                                </div>
-                                <div className="flex items-center gap-1 bg-green-50 text-green-600 px-3 py-1 rounded-full text-xs font-bold">
-                                    <TrendingUp className="w-3.5 h-3.5" /> 15%
-                                </div>
+                            <div className="bg-gray-100 p-1 rounded-xl flex">
+                                {['Daily', 'Weekly', 'Monthly'].map((p) => (
+                                    <button
+                                        key={p}
+                                        onClick={() => setChartPeriod(p)}
+                                        className={`px-4 py-1.5 text-xs font-bold transition-all duration-200 ${chartPeriod === p ? 'text-gray-900 bg-white rounded-lg shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                                    >
+                                        {p}
+                                    </button>
+                                ))}
                             </div>
-                            <WeeklyBarChart data={weeklyProduction} label="kg offset" color="#4ade80" />
                         </div>
+                        <StackedBarChart data={trendsData} categories={trendCategories} height={220} />
                     </div>
 
                     {/* Recent Submissions + Credits */}
@@ -710,16 +798,33 @@ const Dashboard = () => {
                 </div>
 
                 {/* Submit Carbon Report Form */}
-                <div className="bg-white rounded-[24px] border border-gray-100 p-6 shadow-sm">
-                    <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                        <Wind size={18} className="text-primary-600" /> Log Daily Activity
-                    </h3>
+                <div className="bg-white rounded-[24px] border border-gray-100 p-6 shadow-sm" id="carbon-form">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                            <Wind size={18} className="text-primary-600" /> {editingId ? 'Edit Activity' : 'Log Daily Activity'}
+                        </h3>
+                        {editingId && (
+                            <button onClick={resetCarbonForm} className="text-xs font-bold text-gray-400 hover:text-primary-600">Cancel Edit</button>
+                        )}
+                    </div>
                     {carbonMessage && (
                         <div className={`mb-4 p-3 rounded-xl text-sm font-medium ${carbonMessage.startsWith('✅') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
                             {carbonMessage}
                         </div>
                     )}
                     <form onSubmit={handleCarbonSubmit} className="space-y-6">
+                        <div className="flex flex-col md:flex-row gap-4">
+                            <div className="w-full md:w-1/3">
+                                <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Report Date</label>
+                                <input
+                                    type="date"
+                                    value={carbonForm.date}
+                                    onChange={e => setCarbonForm({ ...carbonForm, date: e.target.value })}
+                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm"
+                                    max={new Date().toISOString().split('T')[0]}
+                                />
+                            </div>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                             {/* Transport */}
                             <div className="space-y-2">
@@ -817,13 +922,22 @@ const Dashboard = () => {
                                 </div>
                             </div>
                         </div>
-                        <div className="flex justify-end">
+                        <div className="flex justify-end gap-3">
+                            {editingId && (
+                                <button
+                                    type="button"
+                                    onClick={resetCarbonForm}
+                                    className="px-6 py-2.5 rounded-xl font-bold text-gray-500 hover:bg-gray-100 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            )}
                             <button
                                 type="submit"
                                 disabled={carbonLoading}
                                 className="bg-primary-600 text-white px-8 py-2.5 rounded-xl font-bold hover:bg-primary-700 disabled:opacity-70 transition-colors shadow-lg shadow-primary-200"
                             >
-                                {carbonLoading ? 'Submitting...' : 'Save Daily Report'}
+                                {carbonLoading ? 'Saving...' : editingId ? 'Update Report' : 'Save Daily Report'}
                             </button>
                         </div>
                     </form>
@@ -845,12 +959,12 @@ const Dashboard = () => {
                     ))}
                 </div>
 
-                {/* Weekly Charts */}
+                {/* Weekly Trends Stacked Chart (Full Width) */}
                 <div className="bg-white rounded-[24px] border border-gray-100 p-6">
-                    <h3 className="text-lg font-bold font-outfit text-primary-900 mb-1">Weekly Emission History</h3>
-                    <p className="text-sm text-gray-400 mb-4">Daily carbon footprint (kg CO₂)</p>
-                    <div className="max-w-3xl">
-                        <WeeklyBarChart data={recentHistory} label="kg CO₂" color="#f87171" />
+                    <h3 className="text-lg font-bold font-outfit text-primary-900 mb-1">Weekly Emission Trends</h3>
+                    <p className="text-sm text-gray-400 mb-6">Detailed categorical breakdown (kg CO₂)</p>
+                    <div className="max-w-4xl">
+                        <StackedBarChart data={trendsData} categories={trendCategories} height={200} />
                     </div>
                 </div>
 
@@ -871,9 +985,19 @@ const Dashboard = () => {
                                             {h.transport_distance}km via {h.transport_vehicle_type?.replace(/_/g, ' ')} | {h.electricity_units}kWh Electricity
                                         </p>
                                     </div>
-                                    <div className="text-right">
-                                        <p className="font-bold text-red-500">+{h.total_co2.toFixed(2)} kg</p>
-                                        <p className="text-[10px] text-gray-400">CO₂ emitted</p>
+                                    <div className="flex items-center gap-4">
+                                        <div className="text-right">
+                                            <p className="font-bold text-red-500">+{h.total_co2.toFixed(2)} kg</p>
+                                            <p className="text-[10px] text-gray-400">CO₂ emitted</p>
+                                        </div>
+                                        <div className="flex gap-1">
+                                            <button onClick={() => handleEditLog(h)} className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit Log">
+                                                <FileText size={16} />
+                                            </button>
+                                            <button onClick={() => handleDeleteLog(h.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Delete Log">
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             ))}
@@ -1304,7 +1428,7 @@ const Dashboard = () => {
             {/* Sidebar */}
             <aside className="w-64 bg-white border-r border-gray-200 hidden md:flex flex-col">
                 <div className="p-6 flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-                    <div className="bg-primary-600 p-1.5 rounded-lg"><Leaf className="text-white w-6 h-6" /></div>
+                    <div className="bg-primary-600 p-1.5 rounded-lg"><LogoIcon className="w-6 h-6 text-white" /></div>
                     <span className="text-2xl font-bold font-outfit text-primary-900">Ecological</span>
                 </div>
 
@@ -1342,7 +1466,7 @@ const Dashboard = () => {
             <main className="flex-1 overflow-y-auto">
                 <header className="md:hidden bg-white border-b border-gray-200 p-4 flex justify-between items-center sticky top-0 z-10 shadow-sm">
                     <div className="flex items-center gap-2" onClick={() => navigate('/')}>
-                        <div className="bg-primary-600 p-1.5 rounded-lg"><Leaf className="text-white w-5 h-5" /></div>
+                        <div className="bg-primary-600 p-1.5 rounded-lg"><LogoIcon className="w-5 h-5 text-white" /></div>
                         <span className="text-xl font-bold font-outfit text-primary-900">Ecological</span>
                     </div>
                     <div className="flex items-center gap-3">

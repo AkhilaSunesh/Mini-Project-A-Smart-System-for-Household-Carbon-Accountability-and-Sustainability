@@ -79,5 +79,8 @@ export const getMySubmissions = () => api.get('/reports/my/');
 /* ── Carbon Tracker ── */
 export const submitCarbonReport = (data) => api.post('/reports/carbon/submit/', data);
 export const getCarbonHistory = () => api.get('/reports/carbon/history/');
+export const getCarbonStats = (period) => api.get(`/reports/carbon/stats/?period=${period}`);
+export const updateCarbonReport = (id, data) => api.put(`/reports/carbon/${id}/`, data);
+export const deleteCarbonReport = (id) => api.delete(`/reports/carbon/${id}/`);
 
 export default api;

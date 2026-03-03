@@ -90,40 +90,56 @@ class DailyCarbonReport(models.Model):
         ('paper', 'Paper Waste'),
     ], null=True, blank=True)
 
+    transport_co2 = models.FloatField(default=0)
+    energy_co2 = models.FloatField(default=0)
+    water_co2 = models.FloatField(default=0)
+    waste_co2 = models.FloatField(default=0)
     total_co2 = models.FloatField(default=0)
 
-    def calculate_co2(self):
-        co2 = 0
+    def calculate_breakdown(self):
+        breakdown = {
+            'transport': 0,
+            'energy': 0,
+            'water': 0,
+            'waste': 0,
+        }
         
         # 1. Transport
         if self.transport_vehicle_type in self.TRANSPORT_FACTORS:
-            co2 += self.transport_distance * self.TRANSPORT_FACTORS[self.transport_vehicle_type]
+            breakdown['transport'] = self.transport_distance * self.TRANSPORT_FACTORS[self.transport_vehicle_type]
         
-        # 2. Electricity
-        co2 += self.electricity_units * self.GRID_FACTOR
+        # 2. Energy (Electricity + LPG)
+        breakdown['energy'] = (self.electricity_units * self.GRID_FACTOR) + (self.lpg_used * self.LPG_FACTOR)
         
-        # 3. LPG
-        co2 += self.lpg_used * self.LPG_FACTOR
-        
-        # 4. Water
+        # 3. Water
         if self.water_source in self.WATER_FACTORS:
-            co2 += (self.water_used / 1000.0) * self.WATER_FACTORS[self.water_source]
+            breakdown['water'] = (self.water_used / 1000.0) * self.WATER_FACTORS[self.water_source]
         
-        # 5. Waste
+        # 4. Waste
         if self.waste_type_method in self.WASTE_FACTORS:
-            co2 += self.waste_weight * self.WASTE_FACTORS[self.waste_type_method]
+            breakdown['waste'] = self.waste_weight * self.WASTE_FACTORS[self.waste_type_method]
             
-        return round(co2, 4)
+        return {k: round(v, 4) for k, v in breakdown.items()}
 
     def save(self, *args, **kwargs):
-        self.total_co2 = self.calculate_co2()
+        breakdown = self.calculate_breakdown()
+        self.transport_co2 = breakdown['transport']
+        self.energy_co2 = breakdown['energy']
+        self.water_co2 = breakdown['water']
+        self.waste_co2 = breakdown['waste']
+        self.total_co2 = sum(breakdown.values())
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Carbon Report - {self.user.username} - {self.date}"
+
+    class Meta:
+        unique_together = ('user', 'date')
     
 
 # 🔥 SIGNAL: Update user profile when verified
+from django.db.models.signals import post_save, post_delete
+
 @receiver(post_save, sender=EcoActionSubmission)
 def update_user_points(sender, instance, created, **kwargs):
 
@@ -145,9 +161,9 @@ def update_user_points(sender, instance, created, **kwargs):
         instance.save(update_fields=["points_awarded", "reviewed_at"])
 
 
-# 🔥 SIGNAL: Update UserProfile.total_emission when a DailyCarbonReport is saved
-@receiver(post_save, sender=DailyCarbonReport)
-def update_total_emissions(sender, instance, created, **kwargs):
+# 🔥 SIGNAL: Update UserProfile.total_emission when a DailyCarbonReport is saved or deleted
+@receiver([post_save, post_delete], sender=DailyCarbonReport)
+def update_total_emissions(sender, instance, **kwargs):
     profile = UserProfile.objects.get(user=instance.user)
     # Re-calculate total emissions for the user
     total = DailyCarbonReport.objects.filter(user=instance.user).aggregate(models.Sum('total_co2'))['total_co2__sum'] or 0
