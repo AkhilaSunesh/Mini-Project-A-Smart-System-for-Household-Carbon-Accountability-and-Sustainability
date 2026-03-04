@@ -157,10 +157,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS configuration
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-]
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',')
 CORS_ALLOW_CREDENTIALS = True
 
 # Email Configuration (Gmail)
@@ -173,7 +170,7 @@ EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # Google Client ID for Authentication
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', "815909879895-irk9ltoeobcseco6bb58q3m13qkj5uvi.apps.googleusercontent.com")
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
 
 # Static files should be collected in production
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
