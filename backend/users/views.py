@@ -23,10 +23,12 @@ class ProfileView(APIView):
         return Response(serializer.data)
 
     def patch(self, request):
-        """Allows updating the current user's email."""
+        """Allows updating the current user's email and phone number."""
         user = request.user
         try:
             email = request.data.get('email')
+            phone_number = request.data.get('phone_number')
+
             if email:
                 # Update User model directly to avoid post_save signal loops if any
                 User.objects.filter(pk=user.pk).update(email=email)
@@ -34,6 +36,11 @@ class ProfileView(APIView):
                 user.refresh_from_db()
 
             profile, created = UserProfile.objects.get_or_create(user=user)
+            
+            if phone_number is not None:
+                profile.phone_number = phone_number
+                profile.save()
+
             serializer = UserProfileSerializer(profile)
             return Response(serializer.data)
         except Exception as e:

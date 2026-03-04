@@ -79,9 +79,11 @@ class CarbonStatsView(APIView):
         data = []
 
         if period == 'daily':
-            # Last 5 days as requested
-            for i in range(4, -1, -1):
-                d = now - timezone.timedelta(days=i)
+            # Current Week breakdown (Mon to Sun)
+            weekday = now.weekday()  # Monday is 0
+            monday = now - timezone.timedelta(days=weekday)
+            for i in range(7):
+                d = monday + timezone.timedelta(days=i)
                 stats = DailyCarbonReport.objects.filter(user=request.user, date=d).aggregate(
                     t=models.Sum('transport_co2'),
                     e=models.Sum('energy_co2'),
@@ -98,10 +100,32 @@ class CarbonStatsView(APIView):
                 })
 
         elif period == 'weekly':
-            # Last 4 weeks
-            for i in range(3, -1, -1):
-                end_date = now - timezone.timedelta(weeks=i)
-                start_date = end_date - timezone.timedelta(days=6)
+            # True Calendar Weeks of the Current Month
+            import calendar
+            curr_year = now.year
+            curr_month = now.month
+            # monthcalendar returns a list of weeks, where each week is a list of 7 days (0 if not in month)
+            cal = calendar.monthcalendar(curr_year, curr_month)
+            
+            for i, week in enumerate(cal):
+                # Filter out the 0s and get start/end dates
+                days = [d for d in week if d > 0]
+                if not days:
+                    continue
+                    
+                start_day = days[0]
+                end_day = days[-1]
+                
+                start_date = now.replace(day=start_day)
+                end_date = now.replace(day=end_day)
+                
+                # Format label: Week X (Mar 1 - Mar 7) or Week X (Mar 1)
+                month_str = start_date.strftime('%b')
+                if start_day == end_day:
+                    label = f"Week {i+1} ({month_str} {start_day})"
+                else:
+                    label = f"Week {i+1} ({month_str} {start_day}-{end_day})"
+                
                 stats = DailyCarbonReport.objects.filter(
                     user=request.user, 
                     date__range=[start_date, end_date]
@@ -113,7 +137,7 @@ class CarbonStatsView(APIView):
                     tot=models.Sum('total_co2')
                 )
                 data.append({
-                    'day': f"Week {4-i}",
+                    'day': label,
                     'transport': round(stats['t'] or 0, 2),
                     'energy': round((stats['e'] or 0) + (stats['wa'] or 0), 2),
                     'waste': round(stats['ws'] or 0, 2),

@@ -47,7 +47,7 @@ import {
 /* ─── Stacked Bar Chart (CSS + SVG) ─── */
 const StackedBarChart = ({ data, categories, height = 180 }) => {
     // Find max total to scale the chart
-    const maxTotal = Math.max(...data.map(d => d.total), 30); // Use 30 as a minimum ceiling for better scale
+    const maxTotal = Math.max(...data.map(d => d.total), 60); // Use 60 as a minimum ceiling to match image
     const ceiling = Math.ceil(maxTotal / 15) * 15; // Round to nearest 15 for grid lines
 
     const yAxisLabels = [0, ceiling * 0.25, ceiling * 0.5, ceiling * 0.75, ceiling].reverse();
@@ -73,8 +73,8 @@ const StackedBarChart = ({ data, categories, height = 180 }) => {
                         {/* Bars */}
                         <div className="relative flex items-end justify-between gap-4 h-full px-2" style={{ height: `${height}px` }}>
                             {data.map((day, idx) => (
-                                <div key={idx} className="flex-1 flex flex-col items-center group relative z-10">
-                                    <div className="w-full max-w-[40px] flex flex-col-reverse rounded-lg overflow-hidden transition-all duration-500 hover:brightness-95" style={{ height: `${(day.total / ceiling) * 100}%` }}>
+                                <div key={idx} className="flex-1 flex flex-col items-center group relative z-10 h-full justify-end">
+                                    <div className="w-full max-w-[40px] flex flex-col-reverse rounded-lg overflow-hidden transition-all duration-500 hover:brightness-95 bg-gray-50/50" style={{ height: `${Math.max((day.total / ceiling) * 100, 2)}%` }}>
                                         {categories.map((cat, i) => {
                                             const h = (day[cat.key] / Math.max(day.total, 0.0001)) * 100;
                                             return h > 0 ? (
@@ -96,11 +96,11 @@ const StackedBarChart = ({ data, categories, height = 180 }) => {
             </div>
 
             {/* Legend */}
-            <div className="flex justify-center flex-wrap gap-6 mt-6">
+            <div className="flex justify-center flex-wrap gap-10 mt-6">
                 {categories.map((cat, i) => (
                     <div key={i} className="flex items-center gap-2">
-                        <div className="w-3.5 h-3.5 rounded-sm" style={{ backgroundColor: cat.color }}></div>
-                        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{cat.label}</span>
+                        <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: cat.color }}></div>
+                        <span className="text-xs font-bold text-gray-500">{cat.label}</span>
                     </div>
                 ))}
             </div>
@@ -170,7 +170,7 @@ const Dashboard = () => {
     const [carbonHistory, setCarbonHistory] = useState([]);
     const [purchaseHistory, setPurchaseHistory] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [chartPeriod, setChartPeriod] = useState('Daily');
+    const [chartPeriod, setChartPeriod] = useState('Weekly');
     const [statsData, setStatsData] = useState([]);
     const [statsLoading, setStatsLoading] = useState(false);
 
@@ -218,6 +218,7 @@ const Dashboard = () => {
 
     // Settings state
     const [settingsEmail, setSettingsEmail] = useState('');
+    const [settingsPhone, setSettingsPhone] = useState('');
     const [settingsOldPass, setSettingsOldPass] = useState('');
     const [settingsNewPass, setSettingsNewPass] = useState('');
     const [settingsConfirmPass, setSettingsConfirmPass] = useState('');
@@ -226,7 +227,10 @@ const Dashboard = () => {
     const [settingsDeletePass, setSettingsDeletePass] = useState('');
 
     useEffect(() => {
-        if (profile) setSettingsEmail(profile.email || '');
+        if (profile) {
+            setSettingsEmail(profile.email || '');
+            setSettingsPhone(profile.phone_number || '');
+        }
     }, [profile]);
 
     // --- AQI state (lifted to Dashboard level for hooks stability) ---
@@ -465,7 +469,7 @@ const Dashboard = () => {
         setSettingsLoading(true);
         setSettingsMessage('');
         try {
-            await updateProfile({ email: settingsEmail });
+            await updateProfile({ email: settingsEmail, phone_number: settingsPhone });
             setSettingsMessage('✅ Profile updated successfully!');
             fetchAllData(true);
             setTimeout(() => setSettingsMessage(''), 5000);
@@ -564,9 +568,9 @@ const Dashboard = () => {
     // Dynamic Trends Logic
     const trendsData = statsData;
     const trendCategories = [
-        { key: 'transport', label: 'Transport', color: '#6366f1' },
-        { key: 'energy', label: 'Energy', color: '#eab308' },
-        { key: 'waste', label: 'Goods', color: '#10b981' }
+        { key: 'transport', label: 'Transport', color: '#636b8f' },
+        { key: 'energy', label: 'Energy', color: '#d9b88c' },
+        { key: 'waste', label: 'Goods', color: '#48a47e' }
     ];
 
 
@@ -673,7 +677,7 @@ const Dashboard = () => {
                     <div className="bg-white rounded-[32px] border border-gray-100 p-8">
                         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
                             <div>
-                                <h3 className="text-2xl font-bold font-outfit text-gray-900">Emission Trends</h3>
+                                <h3 className="text-2xl font-bold font-outfit text-gray-900">{chartPeriod} Emission Trends</h3>
                                 <p className="text-sm text-gray-400 font-medium tracking-wide">Breakdown by category (kg CO₂)</p>
                             </div>
                             <div className="bg-gray-100 p-1 rounded-xl flex">
@@ -1069,7 +1073,7 @@ const Dashboard = () => {
 
                 {/* Weekly Trends Stacked Chart (Full Width) */}
                 <div className="bg-white rounded-[24px] border border-gray-100 p-6">
-                    <h3 className="text-lg font-bold font-outfit text-primary-900 mb-1">Weekly Emission Trends</h3>
+                    <h3 className="text-lg font-bold font-outfit text-primary-900 mb-1">{chartPeriod} Emission Trends</h3>
                     <p className="text-sm text-gray-400 mb-6">Detailed categorical breakdown (kg CO₂)</p>
                     <div className="max-w-4xl">
                         <StackedBarChart data={trendsData} categories={trendCategories} height={200} />
@@ -1514,10 +1518,20 @@ const Dashboard = () => {
                             placeholder="your@email.com"
                         />
                     </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2 text-left">Phone Number (for notifications)</label>
+                        <input
+                            type="tel"
+                            value={settingsPhone}
+                            onChange={(e) => setSettingsPhone(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-primary-200 outline-none"
+                            placeholder="+91 00000 00000"
+                        />
+                    </div>
                     <div className="flex justify-end">
                         <button
                             type="submit"
-                            disabled={settingsLoading || settingsEmail === profile?.email}
+                            disabled={settingsLoading || (settingsEmail === profile?.email && settingsPhone === profile?.phone_number)}
                             className="bg-primary-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-primary-700 disabled:opacity-50 transition-all text-sm shadow-md shadow-primary-100"
                         >
                             {settingsLoading ? 'Saving...' : 'Update Information'}
