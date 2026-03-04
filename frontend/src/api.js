@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-    baseURL: '/api',
+    baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
     headers: { 'Content-Type': 'application/json' },
 });
 
@@ -62,14 +62,19 @@ export const updateProfile = (data) => api.patch('/users/profile/', data);
 export const changePassword = (old_password, new_password) =>
     api.post('/users/password/', { old_password, new_password });
 export const deleteAccount = (password) => api.post('/users/delete/', { password });
+export const forgotPassword = (email) => api.post('/users/forgot-password/', { email });
+export const resetPassword = (data) => api.post('/users/reset-password/', data);
+export const googleLogin = (token) => api.post('/users/google-login/', { token });
 
 /* ── Leaderboard ── */
 export const getLeaderboard = () => api.get('/leaderboard/');
 
 /* ── Marketplace ── */
 export const getMarketplaceProjects = () => api.get('/marketplace/projects/');
-export const purchaseCredits = (projectId, credits) =>
-    api.post('/marketplace/purchase/', { project_id: projectId, credits });
+export const createRazorpayOrder = (projectId, credits) =>
+    api.post('/marketplace/create-order/', { project_id: projectId, credits });
+export const verifyRazorpayPayment = (paymentData) =>
+    api.post('/marketplace/verify-payment/', paymentData);
 export const getPurchaseHistory = () => api.get('/marketplace/history/');
 
 /* ── Reports / Eco-Actions ── */

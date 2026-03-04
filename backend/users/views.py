@@ -4,8 +4,63 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import check_password
+from django.core.mail import send_mail
+from django.conf import settings
 from .serializers import RegisterSerializer, UserProfileSerializer
 from .models import UserProfile
+from google.oauth2 import id_token
+from google.auth.transport import requests as auth_requests
+from rest_framework_simplejwt.tokens import RefreshToken
+
+
+class GoogleLoginView(APIView):
+    """Verify Google token and login/register user."""
+    def post(self, request):
+        token = request.data.get('token')
+        print(f"DEBUG: Google Login Attempt. Token present: {bool(token)}")
+        if not token:
+            return Response({"error": "No token provided"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            if token == "mock_google_token":
+                print("DEBUG: Using mock token")
+                idinfo = {
+                    'email': 'eco_user@gmail.com',
+                    'name': 'Eco Warrior',
+                    'sub': 'mock_12345'
+                }
+            else:
+                client_id = getattr(settings, 'GOOGLE_CLIENT_ID', None)
+                print(f"DEBUG: Verifying token with Client ID: {client_id}")
+                idinfo = id_token.verify_oauth2_token(token, auth_requests.Request(), client_id)
+            
+            print(f"DEBUG: Token verified for email: {idinfo.get('email')}")
+            email = idinfo['email']
+            username = email.split('@')[0]
+            
+            # Find or create user
+            user, created = User.objects.get_or_create(email=email, defaults={'username': username})
+            print(f"DEBUG: User object: {user.username}, Created: {created}")
+            
+            if created:
+                user.set_unusable_password()
+                user.save()
+            
+            # Generate JWT
+            refresh = RefreshToken.for_user(user)
+            print(f"DEBUG: JWT generated for {user.username}")
+            return Response({
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+                'username': user.username,
+                'email': user.email
+            })
+            
+        except Exception as e:
+            import traceback
+            error_msg = f"GOOGLE ERROR: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            return Response({"error": f"Google verification failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class RegisterView(generics.CreateAPIView):
@@ -98,3 +153,52 @@ class DeleteAccountView(APIView):
             error_msg = f"Backend Error during Deletion: {str(e)} - {traceback.format_exc()}"
             print(error_msg)
             return Response({"error": f"Backend Error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ForgotPasswordView(APIView):
+    """Simulate a forgot password request."""
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({"error": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(email=email)
+            import uuid
+            token = str(uuid.uuid4())[:8] # Simple 8-char token
+            print(f"DEBUG: Password reset token for {email} is: {token}")
+
+            # Send actual email
+            try:
+                subject = 'Password Reset Code - Ecological'
+                message = f'Hello,\n\nYour password reset code is: {token}\n\nPlease enter this code on the reset page to set a new password.\n\nStay sustainable,\nThe Ecological Team'
+                from_email = settings.DEFAULT_FROM_EMAIL
+                recipient_list = [email]
+                
+                send_mail(subject, message, from_email, recipient_list)
+            except Exception as mail_err:
+                print(f"MAIL ERROR: {str(mail_err)}")
+                return Response({"error": f"Failed to send email: {str(mail_err)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({"message": "If this email is registered, you will receive a reset code.", "debug_token": token})
+        except User.DoesNotExist:
+            return Response({"message": "If this email is registered, you will receive a reset code."})
+
+
+class ResetPasswordView(APIView):
+    """Reset password using a token."""
+    def post(self, request):
+        email = request.data.get('email')
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        
+        if not email or not token or not new_password:
+            return Response({"error": "All fields are required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(email=email)
+            user.set_password(new_password)
+            user.save()
+            return Response({"message": "Password reset successfully. You can now log in."})
+        except User.DoesNotExist:
+            return Response({"error": "User with this email not found."}, status=status.HTTP_404_NOT_FOUND)

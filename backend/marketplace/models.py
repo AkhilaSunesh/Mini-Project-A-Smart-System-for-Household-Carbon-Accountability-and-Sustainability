@@ -24,6 +24,16 @@ class Purchase(models.Model):
     credits_bought = models.FloatField()
     total_price = models.FloatField()
     created_at = models.DateTimeField(auto_now_add=True)
+    
+    # Razorpay Fields
+    razorpay_order_id = models.CharField(max_length=100, null=True, blank=True, unique=True)
+    razorpay_payment_id = models.CharField(max_length=100, null=True, blank=True)
+    razorpay_signature = models.CharField(max_length=200, null=True, blank=True)
+    payment_status = models.CharField(
+        max_length=20, 
+        default='PENDING',
+        choices=[('PENDING', 'Pending'), ('COMPLETED', 'Completed'), ('FAILED', 'Failed')]
+    )
 
     def __str__(self):
         return f"{self.user.username} bought {self.credits_bought} credits from {self.project.organization_name}"

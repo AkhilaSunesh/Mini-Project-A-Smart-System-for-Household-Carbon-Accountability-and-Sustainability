@@ -39,7 +39,7 @@ import { useNavigate } from 'react-router-dom';
 import LogoIcon from '../components/LogoIcon';
 import {
     getProfile, updateProfile, changePassword, deleteAccount,
-    getLeaderboard, getMarketplaceProjects, purchaseCredits, getPurchaseHistory,
+    getLeaderboard, getMarketplaceProjects, createRazorpayOrder, verifyRazorpayPayment, getPurchaseHistory,
     getMySubmissions, submitEcoAction,
     getCarbonHistory, submitCarbonReport, getCarbonStats, updateCarbonReport, deleteCarbonReport
 } from '../api';
@@ -387,14 +387,63 @@ const Dashboard = () => {
         setPurchaseLoading(projectId);
         setPurchaseMessage('');
         try {
-            const res = await purchaseCredits(projectId, qty || 1);
-            setPurchaseMessage(`✅ ${res.data.message} — ${res.data.credits_added} credits for ₹${res.data.total_price?.toFixed(2)}`);
-            // Refresh data silently
-            fetchAllData(true);
-            setTimeout(() => setPurchaseMessage(''), 5000);
+            // 1. Create original order on the backend
+            const orderRes = await createRazorpayOrder(projectId, qty || 1);
+            const { razorpay_order_id, razorpay_key_id, amount, currency, organization } = orderRes.data;
+
+            // 2. Open Razorpay Checkout Window
+            const options = {
+                key: razorpay_key_id,
+                amount: amount * 100, // Razorpay expects amount in Paise (1 INR = 100 Paise)
+                currency: currency,
+                name: "EcoLogical Marketplace",
+                description: `Purchase ${qty} credits from ${organization}`,
+                order_id: razorpay_order_id,
+                handler: async (response) => {
+                    // 3. This handler runs after payment is successful on Razorpay's end
+                    try {
+                        setPurchaseLoading(projectId);
+                        await verifyRazorpayPayment({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature
+                        });
+                        setPurchaseMessage(`✅ Payment verified! ${qty} carbon credits added to your profile.`);
+                        // Refresh user data (especially carbon credits)
+                        fetchAllData(true);
+                        setTimeout(() => setPurchaseMessage(''), 8000);
+                    } catch (err) {
+                        setPurchaseMessage(`❌ Payment verification failed: ${err.response?.data?.error || 'Verification error'}`);
+                    } finally {
+                        setPurchaseLoading(null);
+                    }
+                },
+                prefill: {
+                    name: profile?.username || "",
+                    email: profile?.email || "",
+                    contact: profile?.phone_number || ""
+                },
+                theme: {
+                    color: "#059669" // Emerald-600 to match our theme
+                },
+                modal: {
+                    ondismiss: () => {
+                        setPurchaseLoading(null);
+                    }
+                }
+            };
+
+            const rzp = new window.Razorpay(options);
+
+            rzp.on('payment.failed', function (response) {
+                setPurchaseMessage(`❌ Payment failed: ${response.error.description}`);
+                setPurchaseLoading(null);
+            });
+
+            rzp.open();
+
         } catch (err) {
-            setPurchaseMessage(`❌ ${err.response?.data?.error || 'Purchase failed'}`);
-        } finally {
+            setPurchaseMessage(`❌ Order creation failed: ${err.response?.data?.error || 'Server error'}`);
             setPurchaseLoading(null);
         }
     };
