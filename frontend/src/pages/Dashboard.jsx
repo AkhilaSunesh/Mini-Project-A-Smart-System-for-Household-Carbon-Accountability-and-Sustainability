@@ -32,10 +32,17 @@ import {
     Upload,
     FileText,
     Trash2,
+    Lock,
+    Edit,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import LogoIcon from '../components/LogoIcon';
-import { getProfile, getLeaderboard, getMarketplaceProjects, purchaseCredits, getPurchaseHistory, getMySubmissions, submitEcoAction, getCarbonHistory, submitCarbonReport, getCarbonStats } from '../api';
+import {
+    getProfile, updateProfile, changePassword, deleteAccount,
+    getLeaderboard, getMarketplaceProjects, purchaseCredits, getPurchaseHistory,
+    getMySubmissions, submitEcoAction,
+    getCarbonHistory, submitCarbonReport, getCarbonStats, updateCarbonReport, deleteCarbonReport
+} from '../api';
 
 /* ─── Stacked Bar Chart (CSS + SVG) ─── */
 const StackedBarChart = ({ data, categories, height = 180 }) => {
@@ -209,6 +216,19 @@ const Dashboard = () => {
     const [purchaseMessage, setPurchaseMessage] = useState('');
     const [buyQty, setBuyQty] = useState({});
 
+    // Settings state
+    const [settingsEmail, setSettingsEmail] = useState('');
+    const [settingsOldPass, setSettingsOldPass] = useState('');
+    const [settingsNewPass, setSettingsNewPass] = useState('');
+    const [settingsConfirmPass, setSettingsConfirmPass] = useState('');
+    const [settingsLoading, setSettingsLoading] = useState(false);
+    const [settingsMessage, setSettingsMessage] = useState('');
+    const [settingsDeletePass, setSettingsDeletePass] = useState('');
+
+    useEffect(() => {
+        if (profile) setSettingsEmail(profile.email || '');
+    }, [profile]);
+
     // --- AQI state (lifted to Dashboard level for hooks stability) ---
     const [aqi, setAqi] = useState(null);
     const [aqiLoading, setAqiLoading] = useState(true);
@@ -338,8 +358,22 @@ const Dashboard = () => {
             // Refresh data silently
             fetchAllData(true);
             setTimeout(() => setSubmitMessage(''), 5000);
-        } catch {
-            setSubmitMessage('❌ Failed to submit. Please try again.');
+        } catch (err) {
+            console.error('Submit eco-action error:', err.response || err);
+            let errMsg = 'Please try again.';
+            if (err.response) {
+                if (typeof err.response.data === 'string') {
+                    errMsg = err.response.data;
+                } else {
+                    errMsg = err.response.data?.error ||
+                        err.response.data?.detail ||
+                        (err.response.data && JSON.stringify(err.response.data)) ||
+                        'Server validation error';
+                }
+            } else if (err.message) {
+                errMsg = err.message;
+            }
+            setSubmitMessage(`❌ Failed to submit: ${errMsg}`);
         } finally {
             setSubmitLoading(false);
         }
@@ -408,7 +442,6 @@ const Dashboard = () => {
             waste_type_method: h.waste_type_method
         });
         setEditingId(h.id);
-        // Scroll to form
         const formEl = document.getElementById('carbon-form');
         if (formEl) formEl.scrollIntoView({ behavior: 'smooth' });
     };
@@ -424,6 +457,76 @@ const Dashboard = () => {
         } catch (err) {
             console.error('Delete failed:', err);
             setCarbonMessage(`❌ Failed to delete log: ${err.response?.data?.error || 'Server error'}`);
+        }
+    };
+
+    const handleUpdateProfile = async (e) => {
+        e.preventDefault();
+        setSettingsLoading(true);
+        setSettingsMessage('');
+        try {
+            await updateProfile({ email: settingsEmail });
+            setSettingsMessage('✅ Profile updated successfully!');
+            fetchAllData(true);
+            setTimeout(() => setSettingsMessage(''), 5000);
+        } catch (err) {
+            console.error('Update profile error:', err.response || err);
+            const errMsg = err.response?.data?.error || err.response?.data?.detail || 'Server error';
+            setSettingsMessage(`❌ Failed to update profile: ${errMsg}`);
+        } finally {
+            setSettingsLoading(false);
+        }
+    };
+
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+        if (settingsNewPass !== settingsConfirmPass) {
+            setSettingsMessage('❌ New passwords do not match.');
+            return;
+        }
+        setSettingsLoading(true);
+        setSettingsMessage('');
+        try {
+            await changePassword(settingsOldPass, settingsNewPass);
+            setSettingsMessage('✅ Password changed successfully!');
+            setSettingsOldPass('');
+            setSettingsNewPass('');
+            setSettingsConfirmPass('');
+            setTimeout(() => setSettingsMessage(''), 5000);
+        } catch (err) {
+            console.error('Password change error:', err.response || err);
+            const errMsg = err.response?.data?.error || err.response?.data?.detail || 'Server error';
+            setSettingsMessage(`❌ Failed to change password: ${errMsg}`);
+        } finally {
+            setSettingsLoading(false);
+        }
+    };
+
+    const handleDeleteAccount = async (e) => {
+        e.preventDefault();
+        if (!settingsDeletePass) {
+            setSettingsMessage('❌ Please enter your password to confirm account deletion.');
+            return;
+        }
+        if (!window.confirm('⚠️ Are you sure? This will permanently delete your account and all associated data. This action CANNOT be undone.')) {
+            return;
+        }
+
+        setSettingsLoading(true);
+        setSettingsMessage('');
+        try {
+            await deleteAccount(settingsDeletePass);
+            // Logout on success
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('username');
+            navigate('/');
+        } catch (err) {
+            console.error('Delete account error:', err.response || err);
+            const errMsg = err.response?.data?.error || err.response?.data?.detail || 'Server error';
+            setSettingsMessage(`❌ Failed to delete account: ${errMsg}`);
+        } finally {
+            setSettingsLoading(false);
         }
     };
 
@@ -704,7 +807,7 @@ const Dashboard = () => {
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                                 <Wind className={`w-4 h-4 ${aqiInfo.text}`} />
-                                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Local Air Quality</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Kottayam Air Quality</span>
                             </div>
                             <MapPin className="w-3.5 h-3.5 text-gray-400" />
                         </div>
@@ -719,7 +822,7 @@ const Dashboard = () => {
                                 <div className="flex items-end justify-between mb-2">
                                     <div>
                                         <h4 className={`text-2xl font-bold font-outfit ${aqiInfo.text}`}>{aqiInfo.label}</h4>
-                                        <p className="text-xs text-gray-500 font-medium mt-0.5">Kottayam, Kerala</p>
+                                        <p className="text-xs text-gray-500 font-medium mt-0.5">Kottayam, Kerala (Live)</p>
                                     </div>
                                     <div className="text-right">
                                         <p className="text-4xl font-bold font-outfit" style={{ color: aqiInfo.color }}>{aqiVal}</p>
@@ -756,9 +859,14 @@ const Dashboard = () => {
                                     <span>300+</span>
                                 </div>
 
-                                {aqi?.time?.s && (
+                                {aqi?.time?.iso && (
                                     <p className="text-[10px] text-gray-400 mt-3 text-right">
-                                        Updated: {new Date(aqi.time.s).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                                        Updated: {new Date(aqi.time.iso).toLocaleString('en-IN', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })}
+                                    </p>
+                                )}
+                                {!aqi?.time?.iso && aqi?.time?.s && (
+                                    <p className="text-[10px] text-gray-400 mt-3 text-right">
+                                        Updated: {aqi.time.s}
                                     </p>
                                 )}
                             </>
@@ -991,8 +1099,8 @@ const Dashboard = () => {
                                             <p className="text-[10px] text-gray-400">CO₂ emitted</p>
                                         </div>
                                         <div className="flex gap-1">
-                                            <button onClick={() => handleEditLog(h)} className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit Log">
-                                                <FileText size={16} />
+                                            <button onClick={() => handleEditLog(h)} className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors" title="Edit Activity">
+                                                <Edit size={16} />
                                             </button>
                                             <button onClick={() => handleDeleteLog(h.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Delete Log">
                                                 <Trash2 size={16} />
@@ -1376,36 +1484,132 @@ const Dashboard = () => {
 
     /* ── SETTINGS ── */
     const SettingsPanel = () => (
-        <div className="max-w-2xl space-y-6 animate-fade-in">
+        <div className="max-w-2xl space-y-8 animate-fade-in">
             <div>
                 <h1 className="text-3xl font-bold font-outfit text-primary-900">Settings</h1>
-                <p className="text-gray-500">Manage your account preferences.</p>
+                <p className="text-gray-500">Manage your account preferences and security.</p>
             </div>
 
-            {[
-                { section: 'Account', items: ['Change Password', 'Connected Accounts'] },
-                { section: 'Notifications', items: ['Email Notifications', 'Weekly Carbon Report'] },
-                { section: 'Privacy', items: ['Profile Visibility', 'Download My Data'] },
-            ].map(({ section, items }) => (
-                <div key={section} className="bg-white rounded-[24px] border border-gray-100 overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-100">
-                        <h3 className="font-bold text-gray-900">{section}</h3>
-                    </div>
-                    <div className="divide-y divide-gray-50">
-                        {items.map(item => (
-                            <button key={item} className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors text-left">
-                                <span className="text-sm text-gray-700 font-medium">{item}</span>
-                                <ChevronRight className="w-4 h-4 text-gray-400" />
-                            </button>
-                        ))}
-                    </div>
+            {settingsMessage && (
+                <div className={`p-4 rounded-xl text-sm font-medium ${settingsMessage.startsWith('✅') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                    {settingsMessage}
                 </div>
-            ))}
+            )}
 
-            <div className="bg-red-50 rounded-[20px] p-5 border border-red-100">
-                <h3 className="font-bold text-red-700 mb-1">Danger Zone</h3>
-                <p className="text-sm text-red-500 mb-3">Permanent account actions that cannot be undone.</p>
-                <button className="text-sm font-bold text-red-600 hover:text-red-700 underline">Delete Account</button>
+            {/* Profile Settings */}
+            <div className="bg-white rounded-[24px] border border-gray-100 overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                        <User size={18} className="text-primary-600" /> Account Settings
+                    </h3>
+                </div>
+                <form onSubmit={handleUpdateProfile} className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2 text-left">Email Address</label>
+                        <input
+                            type="email"
+                            value={settingsEmail}
+                            onChange={(e) => setSettingsEmail(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-primary-200 outline-none"
+                            placeholder="your@email.com"
+                        />
+                    </div>
+                    <div className="flex justify-end">
+                        <button
+                            type="submit"
+                            disabled={settingsLoading || settingsEmail === profile?.email}
+                            className="bg-primary-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-primary-700 disabled:opacity-50 transition-all text-sm shadow-md shadow-primary-100"
+                        >
+                            {settingsLoading ? 'Saving...' : 'Update Information'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            {/* Password Settings */}
+            <div className="bg-white rounded-[24px] border border-gray-100 overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50">
+                    <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                        <Lock size={18} className="text-primary-600" /> Change Password
+                    </h3>
+                </div>
+                <form onSubmit={handleChangePassword} className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-400 uppercase mb-2 text-left">Current Password</label>
+                        <input
+                            type="password"
+                            value={settingsOldPass}
+                            onChange={(e) => setSettingsOldPass(e.target.value)}
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-primary-200 outline-none"
+                            placeholder="••••••••"
+                        />
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-400 uppercase mb-2 text-left">New Password</label>
+                            <input
+                                type="password"
+                                value={settingsNewPass}
+                                onChange={(e) => setSettingsNewPass(e.target.value)}
+                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-primary-200 outline-none"
+                                placeholder="••••••••"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-400 uppercase mb-2 text-left">Confirm New Password</label>
+                            <input
+                                type="password"
+                                value={settingsConfirmPass}
+                                onChange={(e) => setSettingsConfirmPass(e.target.value)}
+                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 rounded-xl text-sm focus:ring-2 focus:ring-primary-200 outline-none"
+                                placeholder="••••••••"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-end">
+                        <button
+                            type="submit"
+                            disabled={settingsLoading || !settingsOldPass || !settingsNewPass || settingsNewPass !== settingsConfirmPass}
+                            className="bg-primary-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-primary-700 disabled:opacity-50 transition-all text-sm shadow-md shadow-primary-100"
+                        >
+                            {settingsLoading ? 'Updating...' : 'Change Password'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div className="bg-red-50 rounded-[24px] border border-red-100 overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-red-100 bg-red-100/30">
+                    <h3 className="font-bold text-red-700 flex items-center gap-2">
+                        <Trash2 size={18} /> Danger Zone
+                    </h3>
+                </div>
+                <div className="p-6 space-y-4">
+                    <p className="text-sm text-red-600/80 leading-relaxed">
+                        Once you delete your account, there is no going back. All your carbon reports, eco-actions, and credits will be permanently removed.
+                    </p>
+                    <form onSubmit={handleDeleteAccount} className="space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-red-400 uppercase mb-2 text-left">Confirm Password to Delete</label>
+                            <input
+                                type="password"
+                                value={settingsDeletePass}
+                                onChange={(e) => setSettingsDeletePass(e.target.value)}
+                                className="w-full px-4 py-2.5 bg-white border border-red-100 rounded-xl text-sm focus:ring-2 focus:ring-red-200 outline-none placeholder:text-red-200 text-red-900"
+                                placeholder="Enter your password to confirm"
+                            />
+                        </div>
+                        <div className="flex justify-end">
+                            <button
+                                type="submit"
+                                disabled={settingsLoading || !settingsDeletePass}
+                                className="bg-red-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-all text-sm shadow-md shadow-red-100"
+                            >
+                                {settingsLoading ? 'Deleting...' : 'Permanently Delete Account'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     );

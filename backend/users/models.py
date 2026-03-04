@@ -14,15 +14,18 @@ class UserProfile(models.Model):
         return f"{self.user.username} Profile"
 
 
-# 🔥 Automatically create profile when a new user is created
+# Create profile when a new user is created
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
-        UserProfile.objects.create(user=instance)
+        UserProfile.objects.get_or_create(user=instance)
 
 
-# 🔥 Save profile whenever user is saved
+# Save profile whenever user is saved (unless just created)
 @receiver(post_save, sender=User)
-def save_user_profile(sender, instance, **kwargs):
-    if hasattr(instance, 'userprofile'):
-        instance.userprofile.save()
+def save_user_profile(sender, instance, created, **kwargs):
+    if not created:
+        try:
+            instance.userprofile.save()
+        except UserProfile.DoesNotExist:
+            UserProfile.objects.create(user=instance)

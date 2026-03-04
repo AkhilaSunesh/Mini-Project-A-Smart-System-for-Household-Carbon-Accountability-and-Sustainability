@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.utils import timezone
 from users.models import UserProfile
@@ -36,8 +36,8 @@ class EcoActionSubmission(models.Model):
 class DailyCarbonReport(models.Model):
     # EMISSION FACTORS (kg CO2 per unit)
     TRANSPORT_FACTORS = {
-        'car_petrol_large': 0.1730,  # >1200 cc
-        'car_petrol_small': 0.1264,  # <1200 cc
+        'car_petrol_large': 0.1730,  # >1202 cc
+        'car_petrol_small': 0.1264,  # <1202 cc
         'bike_motorcycle': 0.0248,
         'bike_scooter': 0.0421,
         'bus_public': 0.0730,
@@ -61,8 +61,8 @@ class DailyCarbonReport(models.Model):
     # Transportation
     transport_distance = models.FloatField(default=0)  # km
     transport_vehicle_type = models.CharField(max_length=50, choices=[
-        ('car_petrol_large', 'Car (Petrol >1200 cc)'),
-        ('car_petrol_small', 'Car (Petrol <1200 cc)'),
+        ('car_petrol_large', 'Car (Petrol >1202 cc)'),
+        ('car_petrol_small', 'Car (Petrol <1202 cc)'),
         ('bike_motorcycle', 'Bike (Motorcycle)'),
         ('bike_scooter', 'Bike (Scooter)'),
         ('bus_public', 'Bus (Public)'),
@@ -137,35 +137,40 @@ class DailyCarbonReport(models.Model):
         unique_together = ('user', 'date')
     
 
-# 🔥 SIGNAL: Update user profile when verified
-from django.db.models.signals import post_save, post_delete
-
+# SIGNAL: Update user points when verified
 @receiver(post_save, sender=EcoActionSubmission)
 def update_user_points(sender, instance, created, **kwargs):
-
-    # Only run when:
-    # 1. Not newly created
-    # 2. Status is verified
-    # 3. Points not already awarded
     if not created and instance.status == "verified" and not instance.points_awarded:
+        try:
+            profile = UserProfile.objects.get(user=instance.user)
+            profile.carbon_credits += instance.points
+            profile.save()
 
-        profile = UserProfile.objects.get(user=instance.user)
-
-        # Add points to user's carbon credits
-        profile.carbon_credits += instance.points
-        profile.save()
-
-        # Mark as awarded
-        instance.points_awarded = True
-        instance.reviewed_at = timezone.now()
-        instance.save(update_fields=["points_awarded", "reviewed_at"])
+            instance.points_awarded = True
+            instance.reviewed_at = timezone.now()
+            instance.save(update_fields=["points_awarded", "reviewed_at"])
+        except UserProfile.DoesNotExist:
+            pass
 
 
-# 🔥 SIGNAL: Update UserProfile.total_emission when a DailyCarbonReport is saved or deleted
+# SIGNAL: Update UserProfile.total_emission when a DailyCarbonReport is saved or deleted
 @receiver([post_save, post_delete], sender=DailyCarbonReport)
 def update_total_emissions(sender, instance, **kwargs):
-    profile = UserProfile.objects.get(user=instance.user)
-    # Re-calculate total emissions for the user
-    total = DailyCarbonReport.objects.filter(user=instance.user).aggregate(models.Sum('total_co2'))['total_co2__sum'] or 0
-    profile.total_emission = round(total, 4)
-    profile.save()
+    try:
+        if not instance.user_id:
+            return
+        
+        # Check if user and profile still exist (safe for cascade deletion)
+        profile = UserProfile.objects.get(user_id=instance.user_id)
+        
+        total = DailyCarbonReport.objects.filter(user_id=instance.user_id).aggregate(
+            models.Sum('total_co2')
+        )['total_co2__sum'] or 0
+        
+        profile.total_emission = round(total, 4)
+        profile.save()
+    except (UserProfile.DoesNotExist, User.DoesNotExist):
+        pass
+    except Exception:
+        # Catch other potential issues during deletion cascade
+        pass

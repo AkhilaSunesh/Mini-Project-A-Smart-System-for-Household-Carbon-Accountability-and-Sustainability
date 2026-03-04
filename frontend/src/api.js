@@ -58,6 +58,10 @@ export const loginUser = (username, password) =>
 
 /* ── User Profile ── */
 export const getProfile = () => api.get('/users/profile/');
+export const updateProfile = (data) => api.patch('/users/profile/', data);
+export const changePassword = (old_password, new_password) =>
+    api.post('/users/password/', { old_password, new_password });
+export const deleteAccount = (password) => api.post('/users/delete/', { password });
 
 /* ── Leaderboard ── */
 export const getLeaderboard = () => api.get('/leaderboard/');

@@ -16,14 +16,22 @@ class SubmitEcoActionView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        serializer = EcoActionSubmissionSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save(user=request.user)
-            return Response(
-                {"message": "Eco-action submitted successfully!", "data": serializer.data},
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            serializer = EcoActionSubmissionSerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save(user=request.user)
+                return Response(
+                    {"message": "Eco-action submitted successfully!", "data": serializer.data},
+                    status=status.HTTP_201_CREATED,
+                )
+            # If serializer is not valid, return specific field errors
+            error_data = {"error": "Invalid form data", "details": serializer.errors}
+            return Response(error_data, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            # Let's see what exactly happened on server
+            import traceback
+            print(f"Server-side error submitting eco action: {str(e)} - {traceback.format_exc()}")
+            return Response({"error": f"Backend Error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class UserSubmissionsView(APIView):
@@ -171,8 +179,13 @@ class CarbonReportDetailView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, pk):
-        report = self.get_object(request.user, pk)
-        if not report:
-            return Response({"error": "Report not found"}, status=status.HTTP_404_NOT_FOUND)
-        report.delete()
-        return Response({"message": "Report deleted successfully!"}, status=status.HTTP_204_NO_CONTENT)
+        try:
+            report = self.get_object(request.user, pk)
+            if not report:
+                return Response({"error": "Report not found"}, status=status.HTTP_404_NOT_FOUND)
+            report.delete()
+            return Response({"message": "Report deleted successfully!"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            import traceback
+            print(f"Error during carbon report deletion: {str(e)} - {traceback.format_exc()}")
+            return Response({"error": f"Backend Error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
