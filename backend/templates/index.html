@@ -1,9 +1,10 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/static/vite.svg" />
+  <link rel="icon" type="image/svg+xml" href="{% static 'vite.svg' %}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
     content="EcoLogical - Track your household carbon footprint, earn rewards for eco-friendly actions, and trade carbon credits. Track. Reduce. Earn. Sustain." />
@@ -14,12 +15,12 @@
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap"
     rel="stylesheet">
   <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-  <script type="module" crossorigin src="/static/assets/index-BVKoc1dt.js"></script>
-  <link rel="stylesheet" crossorigin href="/static/assets/index-DbzQ0NDI.css">
+  <script type="module" crossorigin src="{% static 'assets/index-BVKoc1dt.js' %}"></script>
+  <link rel="stylesheet" crossorigin href="{% static 'assets/index-DbzQ0NDI.css' %}">
 </head>
 
 <body>
-  <div id="root"></div>
+  <div id="root"></div>
 </body>
 
 </html>
