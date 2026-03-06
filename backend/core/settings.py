@@ -34,6 +34,7 @@ DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = [
     "mini-project-a-smart-system-for.onrender.com",
+    "eco-logical-frontend.onrender.com",
     "localhost",
     "127.0.0.1"
 ]
