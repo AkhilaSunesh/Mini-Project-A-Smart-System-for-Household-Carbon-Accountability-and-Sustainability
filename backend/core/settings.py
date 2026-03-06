@@ -32,7 +32,11 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'your-render-url.onrender.com,localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = [
+    "mini-project-a-smart-system-for.onrender.com",
+    "localhost",
+    "127.0.0.1"
+]
 
 
 # Application definition
