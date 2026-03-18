@@ -85,6 +85,10 @@ export const submitEcoAction = (formData) =>
 
 export const getMySubmissions = () => api.get('/reports/my/');
 
+/* ── Admin / Approvals ── */
+export const getAdminSubmissions = () => api.get('/reports/admin/submissions/');
+export const reviewSubmission = (id, data) => api.patch(`/reports/admin/submissions/${id}/`, data);
+
 /* ── Carbon Tracker ── */
 export const submitCarbonReport = (data) => api.post('/reports/carbon/submit/', data);
 export const getCarbonHistory = () => api.get('/reports/carbon/history/');

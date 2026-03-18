@@ -7,7 +7,8 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import status
 
 from .models import EcoActionSubmission, DailyCarbonReport
-from .serializers import EcoActionSubmissionSerializer, DailyCarbonReportSerializer
+from .serializers import EcoActionSubmissionSerializer, DailyCarbonReportSerializer, AdminEcoActionSubmissionSerializer
+from .permissions import IsAdminRole
 
 
 class SubmitEcoActionView(APIView):
@@ -213,3 +214,42 @@ class CarbonReportDetailView(APIView):
             import traceback
             print(f"Error during carbon report deletion: {str(e)} - {traceback.format_exc()}")
             return Response({"error": f"Backend Error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminEcoActionListView(APIView):
+    """List all eco-action submissions for admin review."""
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get(self, request):
+        submissions = EcoActionSubmission.objects.all().order_by('-submitted_at')
+        serializer = AdminEcoActionSubmissionSerializer(submissions, many=True)
+        return Response(serializer.data)
+
+
+class AdminEcoActionDetailView(APIView):
+    """Review an eco-action submission (approve/reject)."""
+    permission_classes = [IsAuthenticated, IsAdminRole]
+
+    def get_object(self, pk):
+        try:
+            return EcoActionSubmission.objects.get(pk=pk)
+        except EcoActionSubmission.DoesNotExist:
+            return None
+
+    def patch(self, request, pk):
+        submission = self.get_object(pk)
+        if not submission:
+            return Response({"error": "Submission not found"}, status=status.HTTP_404_NOT_FOUND)
+            
+        data = request.data
+        if data.get('status') in ['verified', 'rejected']:
+            if data['status'] == 'verified' and 'points' not in data:
+                return Response({"error": "Points must be provided when verifying."}, status=status.HTTP_400_BAD_REQUEST)
+                
+            serializer = AdminEcoActionSubmissionSerializer(submission, data=data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response({"message": f"Submission {data['status']} successfully", "data": serializer.data})
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"error": "Invalid status or missing status."}, status=status.HTTP_400_BAD_REQUEST)
+

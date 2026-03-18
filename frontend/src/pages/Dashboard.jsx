@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    LogOut, User, Bell, ChevronRight, LayoutDashboard, ShoppingBag, Users, Settings, Leaf, FileText, ArrowUpRight, TrendingUp, Award
+    LogOut, User, Bell, ChevronRight, LayoutDashboard, ShoppingBag, Users, Settings, Leaf, FileText, ArrowUpRight, TrendingUp, Award, ShieldCheck
 } from 'lucide-react';
 import LogoIcon from '../components/LogoIcon';
 import {
@@ -410,6 +410,15 @@ const Dashboard = () => {
                                 {activeTab === item.name && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary-600"></div>}
                             </button>
                         ))}
+                        {profile?.role === 'admin' && (
+                            <button
+                                onClick={() => navigate('/admin')}
+                                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors font-medium text-left text-gray-500 hover:bg-gray-100 mt-4"
+                            >
+                                <ShieldCheck size={20} />
+                                Admin Panel
+                            </button>
+                        )}
                     </nav>
 
                     <div className="p-4 border-t border-gray-200">
@@ -468,6 +477,15 @@ const Dashboard = () => {
                             <span className="text-[9px] font-medium">{item.name}</span>
                         </button>
                     ))}
+                    {profile?.role === 'admin' && (
+                        <button
+                            onClick={() => navigate('/admin')}
+                            className="flex flex-col items-center gap-1 p-2 rounded-lg transition-colors text-gray-400 hover:text-primary-600"
+                        >
+                            <ShieldCheck size={20} />
+                            <span className="text-[9px] font-medium">Admin</span>
+                        </button>
+                    )}
                 </nav>
             </div>
         </DashboardProvider>
